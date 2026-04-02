@@ -97,108 +97,154 @@ def cmd_seed():
         session.close()
         return
 
-    print("Seeding database with realistic sample data...")
+    print("Seeding database with 5,000+ products...")
 
-    # ---- Sample Products ----
-    SEED_PRODUCTS = [
-        # (name, brand, category, initial_size, size_unit, initial_price)
-        ("Classic Lay's Potato Chips", "Frito-Lay", "chips", 10.0, "oz", 4.29),
-        ("Doritos Nacho Cheese", "Frito-Lay", "chips", 9.25, "oz", 4.99),
-        ("Tostitos Scoops", "Frito-Lay", "chips", 10.0, "oz", 4.49),
-        ("Ruffles Original", "Frito-Lay", "chips", 8.5, "oz", 4.29),
-        ("Cheetos Crunchy", "Frito-Lay", "chips", 8.5, "oz", 4.49),
-        ("Frosted Flakes", "Kellogg's", "cereal", 19.2, "oz", 5.49),
-        ("Froot Loops", "Kellogg's", "cereal", 14.7, "oz", 4.99),
-        ("Rice Krispies", "Kellogg's", "cereal", 18.0, "oz", 5.29),
-        ("Corn Flakes", "Kellogg's", "cereal", 18.0, "oz", 4.79),
-        ("Cheerios Original", "General Mills", "cereal", 18.0, "oz", 5.49),
-        ("Honey Nut Cheerios", "General Mills", "cereal", 15.4, "oz", 5.49),
-        ("Lucky Charms", "General Mills", "cereal", 14.9, "oz", 5.29),
-        ("Cinnamon Toast Crunch", "General Mills", "cereal", 16.8, "oz", 5.29),
-        ("Tropicana Orange Juice", "Tropicana", "juice", 52.0, "fl oz", 4.99),
-        ("Tropicana Apple Juice", "Tropicana", "juice", 52.0, "fl oz", 4.79),
-        ("Minute Maid Lemonade", "Coca-Cola", "juice", 59.0, "fl oz", 3.49),
-        ("Oreo Original Cookies", "Nabisco", "cookies", 14.3, "oz", 5.49),
-        ("Chips Ahoy Original", "Nabisco", "cookies", 13.0, "oz", 4.99),
-        ("Nutter Butter", "Nabisco", "cookies", 16.0, "oz", 4.49),
-        ("Ritz Crackers Original", "Nabisco", "crackers", 13.7, "oz", 4.79),
-        ("Wheat Thins Original", "Nabisco", "crackers", 9.1, "oz", 4.49),
-        ("Triscuit Original", "Nabisco", "crackers", 8.5, "oz", 4.29),
-        ("Yoplait Original Strawberry", "General Mills", "yogurt", 6.0, "oz", 0.89),
-        ("Chobani Greek Yogurt", "Chobani", "yogurt", 5.3, "oz", 1.49),
-        ("Dannon Fruit on Bottom", "Dannon", "yogurt", 5.3, "oz", 1.19),
-        ("Folgers Classic Roast", "Folgers", "coffee", 30.5, "oz", 10.99),
-        ("Folgers 1850 Bold", "Folgers", "coffee", 12.0, "oz", 8.99),
-        ("Maxwell House Original", "Kraft Heinz", "coffee", 30.6, "oz", 9.99),
-        ("Barilla Spaghetti", "Barilla", "pasta", 16.0, "oz", 1.99),
-        ("Barilla Penne", "Barilla", "pasta", 16.0, "oz", 1.99),
-        ("Ronzoni Rotini", "Riviana Foods", "pasta", 16.0, "oz", 1.79),
-        ("Dove Body Wash", "Unilever", "soap", 22.0, "fl oz", 7.99),
-        ("Irish Spring Bar Soap", "Colgate-Palmolive", "soap", 3.7, "oz", 1.29),
-        ("Tide Original Detergent", "P&G", "detergent", 92.0, "fl oz", 12.99),
-        ("Gain Original Detergent", "P&G", "detergent", 88.0, "fl oz", 11.99),
-        ("All Free Clear Detergent", "Henkel", "detergent", 88.0, "fl oz", 10.99),
-        ("Heinz Tomato Ketchup", "Kraft Heinz", "ketchup", 38.0, "oz", 5.49),
-        ("French's Classic Mustard", "McCormick", "ketchup", 14.0, "oz", 2.99),
-        ("Hellmann's Real Mayo", "Unilever", "mayo", 30.0, "fl oz", 5.99),
-        ("Duke's Real Mayo", "Sauer Brands", "mayo", 32.0, "fl oz", 4.99),
-        ("Tillamook Cheddar", "Tillamook", "cheese", 8.0, "oz", 4.99),
-        ("Kraft Singles American", "Kraft Heinz", "cheese", 16.0, "oz", 5.49),
-        ("Philadelphia Cream Cheese", "Kraft Heinz", "cheese", 8.0, "oz", 3.99),
-        ("Wonder Bread White", "Flowers Foods", "bread", 20.0, "oz", 3.99),
-        ("Nature's Own Honey Wheat", "Flowers Foods", "bread", 20.0, "oz", 4.49),
-        ("Sara Lee Artesano", "Bimbo Bakeries", "bread", 20.0, "oz", 4.29),
-        ("Häagen-Dazs Vanilla", "Nestlé", "ice cream", 14.0, "fl oz", 5.99),
-        ("Ben & Jerry's Half Baked", "Unilever", "ice cream", 16.0, "fl oz", 6.49),
-        ("Breyers Natural Vanilla", "Unilever", "ice cream", 48.0, "fl oz", 5.99),
-        ("Tillamook Ice Cream", "Tillamook", "ice cream", 48.0, "fl oz", 6.99),
-    ]
+    # ---- Brand/Category/Product templates ----
+    BRANDS_BY_CATEGORY = {
+        "chips": {
+            "brands": ["Frito-Lay", "Pringles", "Kettle Brand", "Cape Cod", "Utz", "Herr's", "Wise", "Boulder Canyon", "Popchips", "Terra"],
+            "products": ["Potato Chips", "Tortilla Chips", "Kettle Chips", "BBQ Chips", "Sour Cream & Onion", "Salt & Vinegar", "Cheese Puffs", "Corn Chips", "Veggie Chips", "Wavy Chips", "Ranch Chips", "Jalapeno Chips"],
+            "size_range": (5.0, 13.0), "unit": "oz", "price_range": (3.49, 5.99),
+        },
+        "cereal": {
+            "brands": ["Kellogg's", "General Mills", "Post", "Quaker", "Nature's Path", "Cascadian Farm", "Barbara's", "Kashi", "Magic Spoon", "Three Wishes"],
+            "products": ["Frosted Flakes", "Corn Flakes", "Cheerios", "Honey Nut O's", "Granola", "Bran Flakes", "Fruit Loops", "Cocoa Puffs", "Rice Crispies", "Oat Squares", "Muesli", "Raisin Bran"],
+            "size_range": (10.0, 24.0), "unit": "oz", "price_range": (3.99, 7.49),
+        },
+        "juice": {
+            "brands": ["Tropicana", "Minute Maid", "Simply", "Ocean Spray", "Welch's", "Mott's", "V8", "Naked", "Bolthouse Farms", "Evolution Fresh"],
+            "products": ["Orange Juice", "Apple Juice", "Grape Juice", "Cranberry Juice", "Lemonade", "Fruit Punch", "Green Juice", "Carrot Juice", "Mango Juice", "Pineapple Juice"],
+            "size_range": (32.0, 64.0), "unit": "fl oz", "price_range": (3.29, 6.99),
+        },
+        "cookies": {
+            "brands": ["Nabisco", "Pepperidge Farm", "Keebler", "Girl Scouts", "Tate's", "Enjoy Life", "Lenny & Larry's", "Voortman", "Archway", "Famous Amos"],
+            "products": ["Chocolate Chip", "Oreos", "Shortbread", "Oatmeal Raisin", "Peanut Butter", "Double Chocolate", "Snickerdoodle", "Sugar Cookie", "Macaroons", "Biscotti", "Wafer Cookies", "Sandwich Cookies"],
+            "size_range": (7.0, 18.0), "unit": "oz", "price_range": (3.49, 6.49),
+        },
+        "crackers": {
+            "brands": ["Nabisco", "Keebler", "Pepperidge Farm", "Lance", "Triscuit", "Annie's", "Mary's Gone", "Simple Mills", "Back to Nature", "Crunchmaster"],
+            "products": ["Saltines", "Wheat Crackers", "Ritz", "Graham Crackers", "Cheese Crackers", "Water Crackers", "Multigrain", "Pita Chips", "Rice Crackers", "Seed Crackers"],
+            "size_range": (6.0, 16.0), "unit": "oz", "price_range": (3.29, 5.99),
+        },
+        "yogurt": {
+            "brands": ["Chobani", "Dannon", "Yoplait", "Fage", "Siggi's", "Stonyfield", "Oikos", "Noosa", "Tillamook", "Wallaby"],
+            "products": ["Greek Yogurt", "Strawberry", "Blueberry", "Vanilla", "Peach", "Mixed Berry", "Honey", "Plain", "Coconut", "Mango", "Key Lime", "Raspberry"],
+            "size_range": (4.0, 32.0), "unit": "oz", "price_range": (0.89, 5.99),
+        },
+        "coffee": {
+            "brands": ["Folgers", "Maxwell House", "Starbucks", "Dunkin'", "Peet's", "Lavazza", "Illy", "Green Mountain", "Death Wish", "Community Coffee"],
+            "products": ["Classic Roast", "Dark Roast", "Medium Roast", "French Roast", "Colombian", "Breakfast Blend", "Espresso", "Decaf", "House Blend", "Pike Place"],
+            "size_range": (10.0, 36.0), "unit": "oz", "price_range": (6.99, 14.99),
+        },
+        "pasta": {
+            "brands": ["Barilla", "Ronzoni", "De Cecco", "Mueller's", "San Giorgio", "Banza", "Jovial", "DeLallo", "Racconto", "Colavita"],
+            "products": ["Spaghetti", "Penne", "Rotini", "Fettuccine", "Rigatoni", "Angel Hair", "Linguine", "Farfalle", "Ziti", "Macaroni", "Orzo", "Lasagna Sheets"],
+            "size_range": (12.0, 16.0), "unit": "oz", "price_range": (1.49, 3.99),
+        },
+        "soap": {
+            "brands": ["Dove", "Irish Spring", "Dial", "Ivory", "Olay", "Dr. Bronner's", "Mrs. Meyer's", "Method", "Softsoap", "Cetaphil"],
+            "products": ["Body Wash", "Bar Soap", "Hand Soap", "Liquid Soap", "Shower Gel", "Moisturizing Wash", "Antibacterial Soap", "Exfoliating Wash", "Sensitive Skin", "Charcoal Wash"],
+            "size_range": (3.0, 24.0), "unit": "oz", "price_range": (1.29, 9.99),
+        },
+        "detergent": {
+            "brands": ["Tide", "Gain", "All", "Persil", "Arm & Hammer", "Seventh Generation", "Method", "Mrs. Meyer's", "ECOS", "Biokleen"],
+            "products": ["Original", "Free & Clear", "Sport", "Fresh Scent", "Pods", "Liquid", "Powder", "HE Formula", "Color Safe", "Sensitive"],
+            "size_range": (40.0, 100.0), "unit": "fl oz", "price_range": (7.99, 15.99),
+        },
+        "ketchup": {
+            "brands": ["Heinz", "Hunt's", "French's", "Sir Kensington's", "Annie's", "Primal Kitchen", "Organicville", "Red Gold", "Del Monte", "Portland Ketchup"],
+            "products": ["Tomato Ketchup", "Organic Ketchup", "Spicy Ketchup", "No Sugar Added", "Yellow Mustard", "Dijon Mustard", "Honey Mustard", "BBQ Sauce", "Hot Sauce", "Sriracha"],
+            "size_range": (12.0, 40.0), "unit": "oz", "price_range": (2.49, 6.99),
+        },
+        "mayo": {
+            "brands": ["Hellmann's", "Duke's", "Kraft", "Sir Kensington's", "Primal Kitchen", "Just Mayo", "Blue Plate", "Kewpie", "Spectrum", "Trader Joe's"],
+            "products": ["Real Mayo", "Light Mayo", "Olive Oil Mayo", "Avocado Oil Mayo", "Vegan Mayo", "Chipotle Mayo", "Garlic Aioli", "Tartar Sauce", "Ranch Dressing", "Caesar Dressing"],
+            "size_range": (12.0, 36.0), "unit": "fl oz", "price_range": (3.49, 7.99),
+        },
+        "cheese": {
+            "brands": ["Kraft", "Tillamook", "Sargento", "Cabot", "Cracker Barrel", "Borden", "Organic Valley", "Kerrygold", "Laughing Cow", "Babybel"],
+            "products": ["Cheddar", "Mozzarella", "Swiss", "Pepper Jack", "Provolone", "Gouda", "Cream Cheese", "American Singles", "String Cheese", "Parmesan", "Colby Jack", "Brie"],
+            "size_range": (5.0, 24.0), "unit": "oz", "price_range": (2.99, 8.99),
+        },
+        "bread": {
+            "brands": ["Wonder", "Nature's Own", "Sara Lee", "Dave's Killer Bread", "Pepperidge Farm", "Arnold", "Franz", "King's Hawaiian", "Martin's", "Oroweat"],
+            "products": ["White Bread", "Wheat Bread", "Sourdough", "Multigrain", "Rye", "Brioche", "Italian", "Potato Rolls", "Hamburger Buns", "Hot Dog Buns", "English Muffins", "Bagels"],
+            "size_range": (13.0, 24.0), "unit": "oz", "price_range": (2.99, 6.49),
+        },
+        "ice cream": {
+            "brands": ["Häagen-Dazs", "Ben & Jerry's", "Breyers", "Tillamook", "Blue Bunny", "Turkey Hill", "Edy's", "Talenti", "So Delicious", "Halo Top"],
+            "products": ["Vanilla", "Chocolate", "Strawberry", "Cookie Dough", "Mint Chocolate Chip", "Rocky Road", "Butter Pecan", "Coffee", "Cookies & Cream", "Salted Caramel", "Moose Tracks", "Pistachio"],
+            "size_range": (14.0, 56.0), "unit": "fl oz", "price_range": (3.99, 7.99),
+        },
+    }
 
     now = datetime.now(timezone.utc)
     products_created = []
+    product_count = 0
 
-    for name, brand, category, size, unit, price in SEED_PRODUCTS:
-        p = Product(
-            name=name,
-            brand=brand,
-            category=category,
-            barcode=f"00{random.randint(10000, 99999)}{random.randint(10000, 99999)}",
-            retailer="openfoodfacts",
-        )
-        session.add(p)
-        session.flush()
-        products_created.append((p, size, unit, price))
+    SIZE_VARIANTS = ["Snack Size", "Regular", "Family Size", "Value Pack"]
+    seen_names = set()
 
-    # ---- Generate 90 days of snapshots ----
-    # Some products will shrink, most stay stable
-    SHRINK_INDICES = random.sample(range(len(products_created)), 25)
+    for category, info in BRANDS_BY_CATEGORY.items():
+        for brand in info["brands"]:
+            for product_name in info["products"]:
+                # Create multiple size variants per product
+                for variant in SIZE_VARIANTS:
+                    full_name = f"{brand} {product_name} {variant}"
+                    key = (full_name, brand, "openfoodfacts")
+                    if key in seen_names:
+                        continue
+                    seen_names.add(key)
 
+                    lo, hi = info["size_range"]
+                    # Variants affect size
+                    mult = {"Snack Size": 0.5, "Regular": 1.0, "Family Size": 1.8, "Value Pack": 2.5}[variant]
+                    size = round(random.uniform(lo, hi) * mult, 1)
+                    plo, phi = info["price_range"]
+                    price = round(random.uniform(plo, phi) * mult * random.uniform(0.85, 1.0), 2)
+
+                    p = Product(
+                        name=full_name,
+                        brand=brand,
+                        category=category,
+                        barcode=f"00{random.randint(10000, 99999)}{random.randint(10000, 99999)}",
+                        retailer="openfoodfacts",
+                    )
+                    session.add(p)
+                    session.flush()
+                    products_created.append((p, size, info["unit"], price))
+                    product_count += 1
+
+    print(f"  Created {product_count} products across {len(BRANDS_BY_CATEGORY)} categories")
+
+    # ---- Decide which products will shrink (~30%) ----
+    num_shrink = int(len(products_created) * 0.30)
+    SHRINK_INDICES = set(random.sample(range(len(products_created)), num_shrink))
+
+    print(f"  Generating snapshots for {product_count} products (7 weekly snapshots each)...")
+
+    # Generate 7 weekly snapshots (not 91 daily — much faster)
+    batch_count = 0
     for idx, (product, base_size, unit, base_price) in enumerate(products_created):
         will_shrink = idx in SHRINK_INDICES
 
         if will_shrink:
-            # Pick a shrink day between 30-60 days ago
-            shrink_day = random.randint(30, 60)
-            size_reduction = random.uniform(0.03, 0.15)  # 3-15% reduction
-            price_change = random.uniform(-0.01, 0.05)  # -1% to +5% price change
+            shrink_week = random.randint(2, 5)
+            size_reduction = random.uniform(0.03, 0.15)
+            price_change = random.uniform(-0.01, 0.06)
         else:
-            shrink_day = None
+            shrink_week = None
             size_reduction = 0
             price_change = 0
 
-        for day_offset in range(90, -1, -1):
-            snapshot_date = now - timedelta(days=day_offset)
+        for week in range(7):
+            snapshot_date = now - timedelta(weeks=6 - week)
 
-            # Compute size for this day
-            if will_shrink and day_offset < shrink_day:
+            if will_shrink and week >= shrink_week:
                 current_size = round(base_size * (1 - size_reduction), 2)
-            else:
-                current_size = base_size
-
-            # Compute price (slight daily jitter)
-            if will_shrink and day_offset < shrink_day:
                 current_price = round(base_price * (1 + price_change) + random.uniform(-0.05, 0.05), 2)
             else:
+                current_size = base_size
                 current_price = round(base_price + random.uniform(-0.05, 0.05), 2)
 
             ppu = round(current_price / current_size, 4) if current_size > 0 else None
@@ -212,17 +258,23 @@ def cmd_seed():
                 scraped_at=snapshot_date,
             )
             session.add(snapshot)
+            batch_count += 1
+
+        # Commit in batches of 5000 to avoid memory issues
+        if batch_count >= 5000:
+            session.commit()
+            batch_count = 0
 
     session.commit()
+    print(f"  Created {product_count * 7} snapshots")
 
-    # ---- Generate shrinkflation flags for the shrunk products ----
+    # ---- Generate shrinkflation flags ----
     flagged_count = 0
     for idx in SHRINK_INDICES:
         product, base_size, unit, base_price = products_created[idx]
 
-        shrink_day = random.randint(30, 60)
         size_reduction = random.uniform(0.03, 0.15)
-        price_change = random.uniform(-0.01, 0.05)
+        price_change = random.uniform(-0.01, 0.06)
 
         new_size = round(base_size * (1 - size_reduction), 2)
         new_price = round(base_price * (1 + price_change), 2)
@@ -246,31 +298,32 @@ def cmd_seed():
             new_price=new_price,
             real_price_increase_pct=round(real_increase, 2),
             severity=severity,
-            detected_at=now - timedelta(days=random.randint(1, 30)),
+            detected_at=now - timedelta(days=random.randint(1, 42)),
             retailer="openfoodfacts",
         )
         session.add(flag)
         flagged_count += 1
 
-    # ---- Seed a sample AI insight ----
+    # ---- Sample AI insight ----
     sample_insight = AgentInsight(
         insight_type="daily",
         content=(
-            "Cereal brands reduced package sizes 3x more than any other category this week, "
-            "with Kellogg's leading at 3 new shrinkflation flags. Frosted Flakes dropped from "
-            "19.2 oz to 16.9 oz while the price increased by $0.20 — a hidden +15.8% price "
-            "increase per ounce. Frito-Lay remains the overall worst offender with 5 flagged "
-            "products this month."
+            f"Across {product_count:,} tracked products, {flagged_count:,} show signs of shrinkflation "
+            f"this month — a {flagged_count/product_count*100:.1f}% detection rate. Ice cream leads "
+            f"all categories with brands like Häagen-Dazs and Ben & Jerry's quietly reducing pint "
+            f"sizes while maintaining premium prices. Kellogg's cereals have the highest average "
+            f"hidden price increase at +12.3% per ounce. Frito-Lay alone accounts for 8% of all "
+            f"shrinkflation flags across the chip category."
         ),
-        generated_at=now - timedelta(hours=6),
+        generated_at=now - timedelta(hours=2),
     )
     session.add(sample_insight)
 
     session.commit()
     session.close()
 
-    print(f"Seed complete: {len(products_created)} products, ~{len(products_created) * 91} snapshots, "
-          f"{flagged_count} shrinkflation flags, 1 AI insight")
+    print(f"\nSeed complete: {product_count:,} products, {product_count * 7:,} snapshots, "
+          f"{flagged_count:,} shrinkflation flags")
 
 
 def main():
