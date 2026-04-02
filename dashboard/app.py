@@ -155,8 +155,8 @@ if not filtered.empty:
     if selected_severity != "ALL":
         filtered = filtered[filtered["severity"] == selected_severity]
     if "detected_at" in filtered.columns:
-        cutoff = datetime.now(timezone.utc) - pd.Timedelta(days=date_range)
-        filtered["detected_at"] = pd.to_datetime(filtered["detected_at"])
+        filtered["detected_at"] = pd.to_datetime(filtered["detected_at"], utc=True)
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=date_range)
         filtered = filtered[filtered["detected_at"] >= cutoff]
 
 
