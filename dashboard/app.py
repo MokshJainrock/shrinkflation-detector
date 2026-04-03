@@ -61,21 +61,40 @@ st.markdown("""
     .main-header h1 { color: white !important; margin: 0; font-size: 1.8rem; line-height: 1.2; }
     .main-header p { color: #94a3b8; margin: 0.3rem 0 0 0; font-size: 0.9rem; line-height: 1.4; }
 
-    /* ---- Metric cards ---- */
+    /* ---- Metric cards (dark-mode safe) ---- */
     div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border: 1px solid #dee2e6;
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border: 1px solid #475569;
         border-radius: 10px;
         padding: 10px 14px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
     div[data-testid="stMetric"] label {
         font-size: 0.75rem !important;
-        color: #495057 !important;
+        color: #cbd5e1 !important;
     }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         font-size: 1.3rem !important;
         font-weight: 700 !important;
+        color: #f1f5f9 !important;
+    }
+
+    /* Light mode override */
+    @media (prefers-color-scheme: light) {
+        div[data-testid="stMetric"] {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 1px solid #dee2e6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        div[data-testid="stMetric"] label { color: #495057 !important; }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #1e293b !important; }
+    }
+
+    /* Streamlit dark theme detection (more reliable) */
+    [data-testid="stAppViewContainer"][data-theme="dark"] div[data-testid="stMetric"],
+    .stApp[data-theme="dark"] div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        border-color: #475569;
     }
 
     /* ---- Tabs ---- */
@@ -96,12 +115,12 @@ st.markdown("""
     .severity-medium { background: #f39c12; color: white; padding: 2px 10px; border-radius: 12px; font-weight: 600; font-size: 0.8rem; }
     .severity-low { background: #f1c40f; color: #333; padding: 2px 10px; border-radius: 12px; font-weight: 600; font-size: 0.8rem; }
 
-    /* ---- Data source badge ---- */
+    /* ---- Data source badge (works in both themes) ---- */
     .source-badge {
         display: inline-block;
-        background: #eef2ff;
-        border: 1px solid #c7d2fe;
-        color: #4338ca;
+        background: rgba(99, 102, 241, 0.15);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        color: #818cf8;
         padding: 4px 12px;
         border-radius: 20px;
         font-size: 0.75rem;
@@ -109,24 +128,28 @@ st.markdown("""
         margin: 2px;
     }
 
-    /* ---- Info cards ---- */
+    /* ---- Info cards (dark-mode safe) ---- */
     .info-card {
-        background: white;
-        border: 1px solid #e2e8f0;
+        background: rgba(30, 41, 59, 0.8);
+        border: 1px solid #475569;
         border-radius: 10px;
         padding: 1rem;
         margin-bottom: 0.8rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        color: #e2e8f0;
     }
 
-    /* ---- Comparison card ---- */
+    /* ---- Comparison card (dark-mode safe) ---- */
     .compare-card {
-        background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
-        border: 2px solid #fc8181;
+        background: linear-gradient(135deg, rgba(127, 29, 29, 0.3) 0%, rgba(153, 27, 27, 0.2) 100%);
+        border: 2px solid #f87171;
         border-radius: 12px;
         padding: 1.2rem;
         text-align: center;
+        color: #fecaca;
     }
+    .compare-card h3 { color: #fca5a5 !important; }
+    .compare-card p { color: #e2e8f0; }
 
     /* ---- Update status ---- */
     .update-status {
@@ -136,9 +159,10 @@ st.markdown("""
         font-size: 0.75rem;
         font-weight: 600;
         margin-left: 8px;
+        vertical-align: middle;
     }
-    .update-live { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
-    .update-stale { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .update-live { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+    .update-stale { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
 
     /* ---- Footer ---- */
     .footer {
@@ -148,6 +172,7 @@ st.markdown("""
         font-size: 0.8rem;
         line-height: 1.6;
     }
+    .footer a { color: #818cf8; }
 
     /* ============================================
        MOBILE RESPONSIVE — screens < 768px
