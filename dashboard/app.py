@@ -18,7 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from db.models import (
     Product, ProductSnapshot, ShrinkflationFlag, AgentInsight,
@@ -128,6 +128,18 @@ st.markdown("""
         text-align: center;
     }
 
+    /* ---- Update status ---- */
+    .update-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-left: 8px;
+    }
+    .update-live { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .update-stale { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+
     /* ---- Footer ---- */
     .footer {
         text-align: center;
@@ -209,13 +221,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Auto-refresh every 90 seconds
-st_autorefresh(interval=90000, key="data_refresh")
+# Auto-refresh every 5 minutes (300s)
+st_autorefresh(interval=300000, key="data_refresh")
 
 
-# ---- Auto-seed on first run ----
+# ---- Auto-seed + live update system ----
 @st.cache_resource
 def _ensure_db():
+    """Seed DB on first run. Only runs once per app lifecycle."""
     init_db()
     session = get_session()
     if session.query(Product).count() == 0:
@@ -225,7 +238,25 @@ def _ensure_db():
     else:
         session.close()
 
+
+@st.cache_data(ttl=3600)  # Run live update at most once per hour
+def _run_live_update():
+    """
+    Fetch fresh data from Open Food Facts API.
+    Cached for 1 hour so it doesn't spam the API.
+    Returns update stats + timestamp.
+    """
+    try:
+        from scraper.live_tracker import run_live_update
+        result = run_live_update(max_categories=5)
+        return result
+    except Exception as e:
+        return {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+
 _ensure_db()
+
+# Run live update (cached — at most once per hour)
+live_update_result = _run_live_update()
 
 # ---- Chart config (mobile-friendly) ----
 CHART_LAYOUT = dict(
@@ -332,8 +363,25 @@ with st.sidebar:
     col_s2.metric("Flags", f"{len(flags_df):,}")
 
     st.markdown("---")
-    st.markdown("**Data Sources:**")
-    sources = ["BLS", "Consumer Reports", "mouseprint.org", "FTC", "NPR", "WSJ"]
+    st.markdown("**How Data Updates:**")
+    st.markdown("""
+    - **Seed data**: 160+ verified cases from BLS, Consumer Reports, FTC
+    - **Live updates**: Open Food Facts API scanned every hour
+    - **New products**: Auto-added when found in API
+    - **Size changes**: Auto-flagged when detected
+    - **Dashboard**: Refreshes every 5 minutes
+    """)
+
+    # Show last update info
+    if live_update_result and "error" not in live_update_result:
+        ts = live_update_result.get("timestamp", "")
+        st.success(f"Last live scan: {ts[:19]} UTC")
+    else:
+        st.info("Live scan runs when dashboard loads")
+
+    st.markdown("---")
+    st.markdown("**Sources:**")
+    sources = ["BLS", "Consumer Reports", "mouseprint.org", "FTC", "Open Food Facts"]
     st.markdown(" ".join([f'<span class="source-badge">{s}</span>' for s in sources]), unsafe_allow_html=True)
 
 # ---- Apply filters ----
@@ -358,17 +406,32 @@ if not filtered.empty:
 # =====================================================================
 total_prods = len(products_df)
 total_flags = len(filtered)
+
+# Determine update status
+_now_utc = datetime.now(timezone.utc)
+if live_update_result and "error" not in live_update_result:
+    _new_prods = live_update_result.get("new_products", 0)
+    _new_snaps = live_update_result.get("new_snapshots", 0)
+    _cats_checked = live_update_result.get("categories_checked", 0)
+    _update_badge = '<span class="update-status update-live">LIVE — auto-updating hourly</span>'
+    _update_detail = f"Last scan: {_cats_checked} categories checked, {_new_prods} new products, {_new_snaps} new snapshots"
+else:
+    _update_badge = '<span class="update-status update-stale">Seed data — API scan pending</span>'
+    _update_detail = "Live API updates run every hour when the dashboard is active"
+
 st.markdown(f"""
 <div class="main-header">
-    <h1>Shrinkflation Detector</h1>
+    <h1>Shrinkflation Detector {_update_badge}</h1>
     <p>Tracking verified shrinkflation across {total_prods:,} grocery products at Walmart, Kroger & Target
     &middot; {total_flags:,} flagged products match your filters
-    &middot; Updated {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}</p>
+    &middot; Dashboard refreshed {_now_utc.strftime('%b %d, %Y %H:%M UTC')}</p>
+    <p style="margin-top:4px; font-size:0.8rem; color:#64748b">{_update_detail}</p>
     <p style="margin-top:6px">
         <span class="source-badge">BLS Data</span>
         <span class="source-badge">Consumer Reports</span>
         <span class="source-badge">mouseprint.org</span>
         <span class="source-badge">FTC Filings</span>
+        <span class="source-badge">Open Food Facts API</span>
         <span class="source-badge">Media Reports</span>
     </p>
 </div>
@@ -1005,11 +1068,13 @@ else:
 # FOOTER
 # =====================================================================
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
 <div class="footer">
     <strong>Shrinkflation Detector</strong><br>
-    Data based on documented cases from BLS, Consumer Reports, mouseprint.org, FTC filings, and media reports (NYT, WSJ, NPR, CNN).<br>
+    Seed data from BLS, Consumer Reports, mouseprint.org, FTC filings, and media reports (NYT, WSJ, NPR, CNN).<br>
+    Live data from <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API (free, open-source).<br>
     Prices reflect approximate retail values across Walmart, Kroger, and Target.<br>
+    Auto-updates: Live API scan every hour &middot; Dashboard refresh every 5 minutes &middot; Next scan ~{(_now_utc + timedelta(hours=1)).strftime('%H:%M UTC')}<br>
     Built with Python, Streamlit, SQLAlchemy, and Plotly
 </div>
 """, unsafe_allow_html=True)
