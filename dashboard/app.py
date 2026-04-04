@@ -646,7 +646,7 @@ if not filtered.empty:
             fig1.update_traces(textposition="outside")
             fig1.update_layout(**CHART_LAYOUT, height=400)
             fig1.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig1, width="stretch", config=CHART_CONFIG)
 
         with col2:
             st.subheader("Severity Breakdown")
@@ -662,7 +662,7 @@ if not filtered.empty:
                 height=400, margin=dict(l=10, r=10, t=10, b=10),
                 showlegend=True, legend=dict(orientation="h", y=-0.1),
             )
-            st.plotly_chart(fig_donut, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_donut, width="stretch", config=CHART_CONFIG)
 
         st.divider()
 
@@ -690,7 +690,7 @@ if not filtered.empty:
                 ))
             fig2.update_layout(**CHART_LAYOUT, height=350, yaxis_title="New Flags",
                                legend=dict(orientation="h", yanchor="bottom", y=1.02))
-            st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig2, width="stretch", config=CHART_CONFIG)
 
         st.divider()
 
@@ -711,7 +711,7 @@ if not filtered.empty:
                 )
                 fig3.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
                 fig3.update_layout(**CHART_LAYOUT, height=400)
-                st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
+                st.plotly_chart(fig3, width="stretch", config=CHART_CONFIG)
 
         with col_right:
             st.subheader("Avg Hidden Price Increase")
@@ -728,7 +728,7 @@ if not filtered.empty:
             )
             fig4.update_traces(texttemplate="+%{text:.1f}%", textposition="outside")
             fig4.update_layout(**CHART_LAYOUT, height=400)
-            st.plotly_chart(fig4, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig4, width="stretch", config=CHART_CONFIG)
 
         st.divider()
 
@@ -748,7 +748,7 @@ if not filtered.empty:
                 hover_data={"avg_inc": ":.1f"},
             )
             fig_tree.update_layout(height=450, margin=dict(l=5, r=5, t=30, b=5))
-            st.plotly_chart(fig_tree, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_tree, width="stretch", config=CHART_CONFIG)
 
     # =================================================================
     # TAB 2: COMPARE
@@ -847,21 +847,21 @@ if not filtered.empty:
                 "Metric": ["Total Flags", "Avg Hidden Increase", "HIGH Severity",
                            "Max Increase", "Brands Affected"],
                 cat_a.title(): [
-                    len(d_a),
+                    str(len(d_a)),
                     f"+{d_a['real_price_increase_pct'].mean():.1f}%" if not d_a.empty else "0%",
-                    int((d_a["severity"] == "HIGH").sum()) if not d_a.empty else 0,
+                    str(int((d_a["severity"] == "HIGH").sum())) if not d_a.empty else "0",
                     f"+{d_a['real_price_increase_pct'].max():.1f}%" if not d_a.empty else "0%",
-                    d_a["brand"].nunique() if not d_a.empty else 0,
+                    str(d_a["brand"].nunique()) if not d_a.empty else "0",
                 ],
                 cat_b.title(): [
-                    len(d_b),
+                    str(len(d_b)),
                     f"+{d_b['real_price_increase_pct'].mean():.1f}%" if not d_b.empty else "0%",
-                    int((d_b["severity"] == "HIGH").sum()) if not d_b.empty else 0,
+                    str(int((d_b["severity"] == "HIGH").sum())) if not d_b.empty else "0",
                     f"+{d_b['real_price_increase_pct'].max():.1f}%" if not d_b.empty else "0%",
-                    d_b["brand"].nunique() if not d_b.empty else 0,
+                    str(d_b["brand"].nunique()) if not d_b.empty else "0",
                 ],
             })
-            st.dataframe(compare_df, use_container_width=True, hide_index=True)
+            st.dataframe(compare_df, width="stretch", hide_index=True)
 
     # =================================================================
     # TAB 3: DEEP DIVE
@@ -891,7 +891,7 @@ if not filtered.empty:
             fig_brand.update_traces(texttemplate="+%{text:.1f}%", textposition="outside")
             fig_brand.update_layout(**CHART_LAYOUT, height=max(300, len(brand_data.head(20)) * 30))
             fig_brand.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig_brand, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_brand, width="stretch", config=CHART_CONFIG)
 
             # Size change distribution
             if "old_size" in brand_data.columns and "new_size" in brand_data.columns:
@@ -904,7 +904,7 @@ if not filtered.empty:
                     title=f"Size Change Distribution — {dive_brand}",
                 )
                 fig_hist.update_layout(**CHART_LAYOUT, height=280, barmode="stack")
-                st.plotly_chart(fig_hist, use_container_width=True, config=CHART_CONFIG)
+                st.plotly_chart(fig_hist, width="stretch", config=CHART_CONFIG)
 
         st.divider()
 
@@ -965,7 +965,7 @@ if not filtered.empty:
                     )
                     fig_combo.update_yaxes(title_text="Size", secondary_y=False)
                     fig_combo.update_yaxes(title_text="Price ($)", secondary_y=True)
-                    st.plotly_chart(fig_combo, use_container_width=True, config=CHART_CONFIG)
+                    st.plotly_chart(fig_combo, width="stretch", config=CHART_CONFIG)
 
                     if history.get("shrinkflation_events"):
                         st.markdown("**Shrinkflation Events:**")
@@ -1015,7 +1015,7 @@ if not filtered.empty:
             fig_scatter.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
             fig_scatter.update_layout(**CHART_LAYOUT, height=450,
                                       legend=dict(orientation="h", yanchor="bottom", y=-0.35))
-            st.plotly_chart(fig_scatter, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_scatter, width="stretch", config=CHART_CONFIG)
 
         st.divider()
 
@@ -1039,7 +1039,7 @@ if not filtered.empty:
                 text_auto=True, aspect="auto",
             )
             fig_heat.update_layout(height=450, margin=dict(l=10, r=10, t=30, b=10))
-            st.plotly_chart(fig_heat, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_heat, width="stretch", config=CHART_CONFIG)
 
         st.divider()
 
@@ -1195,10 +1195,10 @@ if not filtered.empty:
         if not table.empty and "severity" in table.columns:
             st.dataframe(
                 table.style.map(color_severity, subset=["severity"]),
-                use_container_width=True, height=500,
+                width="stretch", height=500,
             )
         else:
-            st.dataframe(table, use_container_width=True, height=500)
+            st.dataframe(table, width="stretch", height=500)
 
         st.caption(f"Showing {len(table):,} of {len(display):,} flagged products")
 
