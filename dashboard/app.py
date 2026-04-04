@@ -275,16 +275,24 @@ def _start_pipeline():
     """
     init_db()
     session = get_session()
-    is_empty = session.query(Product).count() == 0
+    product_count = session.query(Product).count()
+    flag_count = session.query(ShrinkflationFlag).count()
     session.close()
 
     # ── Phase 1: instant baseline from verified cases ────────────────────
-    if is_empty:
+    # Seed if DB is empty OR if products exist but no flags (prior broken deploy)
+    if product_count == 0 or flag_count == 0:
         try:
+            if product_count > 0 and flag_count == 0:
+                # Products exist but no flags — wipe and reseed cleanly
+                from db.models import Base, get_engine as _get_engine
+                Base.metadata.drop_all(_get_engine())
+                init_db()
             from data.verified_cases import VERIFIED_CASES, STABLE_PRODUCTS, RETAILERS
             _seed_verified_baseline(VERIFIED_CASES, STABLE_PRODUCTS, RETAILERS)
         except Exception as e:
             st.warning(f"Could not load baseline data: {e}")
+    is_empty = product_count == 0
 
     # ── Phase 2: start background live pipeline ──────────────────────────
     try:
@@ -1265,8 +1273,7 @@ if not filtered.empty:
             )
 
 else:
-    st.info("No flagged products yet. Run the pipeline:")
-    st.code("python main.py --seed\npython main.py --analyze", language="bash")
+    st.info("No flagged products detected yet. The scheduled pipeline will populate data automatically.")
 
 # =====================================================================
 # FOOTER
