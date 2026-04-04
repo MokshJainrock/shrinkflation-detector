@@ -250,23 +250,12 @@ st.markdown("""
 st_autorefresh(interval=60000, key="data_refresh")
 
 
-# ---- Live-only pipeline (no seed data) ───────────────────────────────────
+# ---- Live scanner (runs on every page refresh) ──────────────────────────
 @st.cache_resource
-def _start_pipeline():
-    """
-    Start the live scanner — every 60 seconds it fetches real products
-    from Open Food Facts API and stores them in the database.
-
-    Products ACCUMULATE over time. Each restart preserves all previously
-    scanned products. The scanner keeps adding new ones every 60 seconds.
-
-    NO seed data. Every product came from a live API call to openfoodfacts.org.
-    """
-    # Create tables if they don't exist — never wipe existing live data
+def _init_db_once():
+    """Create tables once. Never wipe — products accumulate."""
     init_db()
-
-    # One-time cleanup: remove old seed data (retailer != "openfoodfacts")
-    # Real live-scanned products always have retailer="openfoodfacts"
+    # One-time cleanup of old seed data
     try:
         session = get_session()
         seed_count = session.query(Product).filter(
@@ -280,14 +269,40 @@ def _start_pipeline():
     except Exception:
         pass
 
+
+_init_db_once()
+
+
+@st.cache_data(ttl=55)
+def _run_live_scan():
+    """
+    Fetch real products from Open Food Facts API RIGHT NOW.
+
+    Called on every page load. Cached for 55 seconds so each 60s auto-refresh
+    triggers a fresh scan. Products accumulate in the DB over time.
+
+    Returns scan stats dict.
+    """
+    from scraper.live_tracker import run_live_update
+    from analysis.detector import run_detection
+
     try:
-        from ingestion.pipeline import start_scheduler
-        start_scheduler()
+        stats = run_live_update(max_categories=2)
     except Exception as e:
-        st.warning(f"Live scanner could not start: {e}")
+        return {"error": str(e), "new_products": 0, "new_snapshots": 0}
+
+    try:
+        new_flags = run_detection()
+        stats["new_flags"] = new_flags
+    except Exception:
+        stats["new_flags"] = 0
+
+    stats["scanned_at"] = datetime.now(timezone.utc).isoformat()
+    return stats
 
 
-_start_pipeline()
+# Run the scan NOW (cached 55s so next 60s refresh triggers a new one)
+_scan_result = _run_live_scan()
 
 # ---- Chart config (mobile-friendly) ----
 CHART_LAYOUT = dict(
@@ -423,31 +438,21 @@ if not filtered.empty:
 total_prods = len(products_df)
 total_flags = len(filtered)
 
-# Determine update status from last ingestion log in DB
+# Determine update status from the scan that just ran
 _now_utc = datetime.now(timezone.utc)
-try:
-    _status_session = get_session()
-    _last_ingest = (
-        _status_session.query(AgentInsight)
-        .filter(AgentInsight.insight_type.like("ingest_%"))
-        .order_by(AgentInsight.generated_at.desc())
-        .first()
-    )
-    _status_session.close()
-except Exception:
-    _last_ingest = None
+_new_p = _scan_result.get("new_products", 0)
+_new_s = _scan_result.get("new_snapshots", 0)
+_scan_err = _scan_result.get("error")
 
-if _last_ingest:
-    _secs_ago = int((_now_utc - _last_ingest.generated_at.replace(tzinfo=timezone.utc)).total_seconds())
-    if _secs_ago < 120:
-        _ago_str = f"{_secs_ago}s ago"
-    else:
-        _ago_str = f"{_secs_ago // 60}m ago"
+if _scan_err:
+    _update_badge = '<span class="update-status update-live">LIVE — scan error, retrying...</span>'
+    _update_detail = f"Error: {_scan_err} — will retry in 60 seconds"
+elif total_prods > 0:
     _update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
-    _update_detail = f"Last scan: {_ago_str} — all data from Open Food Facts API (live)"
+    _update_detail = f"Just scanned: +{_new_p} new products, +{_new_s} snapshots from Open Food Facts API"
 else:
-    _update_badge = '<span class="update-status update-live">LIVE — starting scanner...</span>'
-    _update_detail = "First scan in progress — products will appear within 60 seconds"
+    _update_badge = '<span class="update-status update-live">LIVE — first scan running</span>'
+    _update_detail = "Fetching products from Open Food Facts API — refresh in 60 seconds to see results"
 
 st.markdown(f"""
 <div class="main-header">
