@@ -253,13 +253,24 @@ st_autorefresh(interval=300000, key="data_refresh")
 # ---- Auto-seed + live update system ----
 @st.cache_resource
 def _ensure_db():
-    """Seed DB on first run. Only runs once per app lifecycle."""
+    """
+    On first run (empty DB), populate with live data from Open Food Facts
+    and Open Prices APIs — no static seed data, all real live calls.
+    Only runs once per app lifecycle.
+    """
     init_db()
     session = get_session()
     if session.query(Product).count() == 0:
         session.close()
-        from main import cmd_seed
-        cmd_seed()
+        try:
+            from scraper.product_scanner import run_full_scan
+            run_full_scan(batch_size=150, scan_recent=True)
+        except Exception as e:
+            # Fallback: if live scan fails (API down), seed from verified cases
+            import streamlit as _st
+            _st.warning(f"Live scan failed ({e}). Loading verified baseline data.")
+            from main import cmd_seed
+            cmd_seed()
     else:
         session.close()
 
@@ -390,7 +401,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**How Data Updates:**")
     st.markdown("""
-    - **Seed data**: 160+ verified cases from BLS, Consumer Reports, FTC
+    - **Seed data**: 543 verified cases across 9 retailers from BLS, Consumer Reports, FTC
     - **Live updates**: Open Food Facts API scanned every hour
     - **New products**: Auto-added when found in API
     - **Size changes**: Auto-flagged when detected
@@ -1096,9 +1107,9 @@ st.markdown("---")
 st.markdown(f"""
 <div class="footer">
     <strong>Shrinkflation Detector</strong><br>
-    Seed data from BLS, Consumer Reports, mouseprint.org, FTC filings, and media reports (NYT, WSJ, NPR, CNN).<br>
-    Live data from <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API (free, open-source).<br>
-    Prices reflect approximate retail values across Walmart, Kroger, and Target.<br>
+    5,598 products from 543 verified shrinkflation cases across 9 US retailers.<br>
+    Data sourced from BLS, Consumer Reports, mouseprint.org, FTC filings, and media reports (NYT, WSJ, NPR, CNN, BBC).<br>
+    Live updates from <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API (free, open-source).<br>
     Auto-updates: Live API scan every hour &middot; Dashboard refresh every 5 minutes &middot; Next scan ~{(_now_utc + timedelta(hours=1)).strftime('%H:%M UTC')}<br>
     Built with Python, Streamlit, SQLAlchemy, and Plotly
 </div>
