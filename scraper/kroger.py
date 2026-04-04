@@ -11,7 +11,6 @@ from difflib import SequenceMatcher
 import requests
 
 from config.settings import (
-    KROGER_CLIENT_ID, KROGER_CLIENT_SECRET,
     KROGER_TOKEN_URL, KROGER_SEARCH_URL, OFF_CATEGORIES,
 )
 from db.models import Product, ProductSnapshot, get_session
@@ -21,20 +20,35 @@ logger = logging.getLogger(__name__)
 _token_cache: dict = {"access_token": None, "expires_at": 0}
 
 
+def _get_kroger_credentials():
+    """Read Kroger credentials FRESH every time (not at import time).
+    This ensures st.secrets is available on Streamlit Cloud."""
+    # Try Streamlit secrets first
+    try:
+        import streamlit as st
+        cid = st.secrets["KROGER_CLIENT_ID"]
+        csec = st.secrets["KROGER_CLIENT_SECRET"]
+        if cid and csec:
+            return cid, csec
+    except Exception:
+        pass
+
+    # Fall back to env vars / config
+    import os
+    cid = os.getenv("KROGER_CLIENT_ID", "")
+    csec = os.getenv("KROGER_CLIENT_SECRET", "")
+    return cid, csec
+
+
 def get_kroger_token() -> str | None:
     """Get or refresh Kroger OAuth2 access token."""
-    if not KROGER_CLIENT_ID or not KROGER_CLIENT_SECRET:
+    client_id, client_secret = _get_kroger_credentials()
+
+    if not client_id or not client_secret:
         logger.warning(
             "Kroger credentials not configured — skipping Kroger scraper. "
-            f"CLIENT_ID present: {bool(KROGER_CLIENT_ID)}, "
-            f"CLIENT_SECRET present: {bool(KROGER_CLIENT_SECRET)}"
-        )
-        print(
-            f"[Kroger] Credentials check: "
-            f"CLIENT_ID={'SET' if KROGER_CLIENT_ID else 'MISSING'} "
-            f"(len={len(KROGER_CLIENT_ID) if KROGER_CLIENT_ID else 0}), "
-            f"CLIENT_SECRET={'SET' if KROGER_CLIENT_SECRET else 'MISSING'} "
-            f"(len={len(KROGER_CLIENT_SECRET) if KROGER_CLIENT_SECRET else 0})"
+            f"CLIENT_ID present: {bool(client_id)}, "
+            f"CLIENT_SECRET present: {bool(client_secret)}"
         )
         return None
 
@@ -42,7 +56,7 @@ def get_kroger_token() -> str | None:
     if _token_cache["access_token"] and now < _token_cache["expires_at"] - 60:
         return _token_cache["access_token"]
 
-    credentials = b64encode(f"{KROGER_CLIENT_ID}:{KROGER_CLIENT_SECRET}".encode()).decode()
+    credentials = b64encode(f"{client_id}:{client_secret}".encode()).decode()
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Authorization": f"Basic {credentials}",
