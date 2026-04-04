@@ -398,11 +398,21 @@ with st.sidebar:
     - **Dashboard**: Refreshes every 5 minutes
     """)
 
-    # Show last update info
-    if live_update_result and "error" not in live_update_result:
-        ts = live_update_result.get("timestamp", "")
-        st.success(f"Last live scan: {ts[:19]} UTC")
-    else:
+    # Show last pipeline run time (read from DB log written by ingestion/pipeline.py)
+    try:
+        _log_session = get_session()
+        _last_run = (
+            _log_session.query(AgentInsight)
+            .filter(AgentInsight.insight_type.like("ingest_%"))
+            .order_by(AgentInsight.generated_at.desc())
+            .first()
+        )
+        _log_session.close()
+        if _last_run:
+            st.success(f"Last live scan: {_last_run.generated_at.strftime('%Y-%m-%d %H:%M')} UTC")
+        else:
+            st.info("Live scan runs when dashboard loads")
+    except Exception:
         st.info("Live scan runs when dashboard loads")
 
     st.markdown("---")
@@ -433,17 +443,27 @@ if not filtered.empty:
 total_prods = len(products_df)
 total_flags = len(filtered)
 
-# Determine update status
+# Determine update status from last ingestion log in DB
 _now_utc = datetime.now(timezone.utc)
-if live_update_result and "error" not in live_update_result:
-    _new_prods = live_update_result.get("new_products", 0)
-    _new_snaps = live_update_result.get("new_snapshots", 0)
-    _cats_checked = live_update_result.get("categories_checked", 0)
+try:
+    _status_session = get_session()
+    _last_ingest = (
+        _status_session.query(AgentInsight)
+        .filter(AgentInsight.insight_type.like("ingest_%"))
+        .order_by(AgentInsight.generated_at.desc())
+        .first()
+    )
+    _status_session.close()
+except Exception:
+    _last_ingest = None
+
+if _last_ingest:
+    _mins_ago = int((_now_utc - _last_ingest.generated_at.replace(tzinfo=timezone.utc)).total_seconds() / 60)
     _update_badge = '<span class="update-status update-live">LIVE — auto-updating hourly</span>'
-    _update_detail = f"Last scan: {_cats_checked} categories checked, {_new_prods} new products, {_new_snaps} new snapshots"
+    _update_detail = f"Last ingestion run: {_mins_ago}m ago — Open Food Facts + Open Prices APIs"
 else:
-    _update_badge = '<span class="update-status update-stale">Seed data — API scan pending</span>'
-    _update_detail = "Live API updates run every hour when the dashboard is active"
+    _update_badge = '<span class="update-status update-live">LIVE — pipeline active</span>'
+    _update_detail = "Ingestion pipeline running — first scan in progress"
 
 st.markdown(f"""
 <div class="main-header">
