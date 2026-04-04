@@ -10,8 +10,9 @@ Usage:
     python main.py --all          Scrape + analyze + generate insight
     python main.py --schedule     Run --all every 24 hours automatically
     python main.py --dashboard    Launch Streamlit on localhost:8501
-    python main.py --seed         Pull live data from Open Food Facts + Open Prices APIs
-    python main.py --reseed       Wipe DB and re-seed from live APIs
+    python main.py --seed         Run one full ingestion cycle (live APIs)
+    python main.py --reseed       Wipe DB then run full live ingestion cycle
+    python main.py --live         Start continuous scheduler (hourly + daily)
 """
 
 import argparse
@@ -81,7 +82,7 @@ def cmd_dashboard():
 
 
 def cmd_reseed():
-    """Wipe DB and re-populate entirely from live Open Food Facts + Open Prices APIs."""
+    """Wipe DB then run a fresh live ingestion cycle from Open Food Facts + Open Prices."""
     from db.models import Base, get_engine, init_db
     engine = get_engine()
     Base.metadata.drop_all(engine)
@@ -92,17 +93,44 @@ def cmd_reseed():
 
 def cmd_seed():
     """
-    Populate the database using live API calls only.
+    Run one complete ingestion cycle using live APIs only.
 
     Data sources (all real, no fabricated data):
     - Open Food Facts API  — real product sizes and barcodes (openfoodfacts.org)
     - Open Prices API      — crowd-sourced real retail prices from grocery receipts
     """
-    from scraper.product_scanner import run_full_scan
-    print("Starting live data scan from Open Food Facts + Open Prices APIs...")
-    print("  Step 1 — Scanning verified shrinkflation cases via OFF API")
-    print("  Step 2 — Discovering newly changed products from OFF live feed")
-    run_full_scan(batch_size=200, scan_recent=True)
+    from ingestion.pipeline import run_once
+    run_once()
+
+
+def cmd_live():
+    """
+    Start the continuous background scheduler and block until Ctrl+C.
+
+    Schedule:
+      • Every 1 hour     — Open Food Facts category ingest + shrinkflation detection
+      • Daily 03:00 UTC  — Full verified-case deep scan + Open Prices price fetch
+    """
+    import time
+    from db.models import init_db
+    from ingestion.pipeline import start_scheduler, stop_scheduler
+
+    print("=" * 60)
+    print("Shrinkflation Detector — Live Ingestion Pipeline")
+    print("  Hourly:  Open Food Facts category scan")
+    print("  Daily:   Verified shrinkflation case deep-scan (03:00 UTC)")
+    print("Press Ctrl+C to stop.")
+    print("=" * 60)
+
+    init_db()
+    start_scheduler(run_immediately=True)
+
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        stop_scheduler()
+        print("\nPipeline stopped.")
 
 
 def main():
@@ -115,8 +143,9 @@ def main():
     parser.add_argument("--all", action="store_true", help="Scrape + analyze + insight")
     parser.add_argument("--schedule", action="store_true", help="Run on a daily schedule")
     parser.add_argument("--dashboard", action="store_true", help="Launch Streamlit dashboard")
-    parser.add_argument("--seed", action="store_true", help="Load sample data for demo")
-    parser.add_argument("--reseed", action="store_true", help="Wipe DB and re-seed fresh")
+    parser.add_argument("--seed", action="store_true", help="Run one live ingestion cycle")
+    parser.add_argument("--reseed", action="store_true", help="Wipe DB then run live ingestion")
+    parser.add_argument("--live", action="store_true", help="Start continuous hourly+daily scheduler")
 
     args = parser.parse_args()
 
@@ -142,6 +171,8 @@ def main():
         cmd_all()
     if args.schedule:
         cmd_schedule()
+    if args.live:
+        cmd_live()
     if args.dashboard:
         cmd_dashboard()
 
