@@ -43,11 +43,15 @@ API_RATE_LIMIT = 1.0
 
 # Required by OFF API — anonymous requests without User-Agent get 503
 OFF_HEADERS = {
-    "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector)"
+    "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector; contact@shrinkflation.app)",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
 }
 
 
-def _get(url, params=None, timeout=20, retries=3):
+def _get(url, params=None, timeout=8, retries=2):
     """HTTP GET with retry logic and rate limiting."""
     for attempt in range(retries):
         try:
