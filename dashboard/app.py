@@ -546,7 +546,11 @@ with st.sidebar:
         selected_retailer = "All Retailers"
 
     st.markdown("---")
-    date_range = st.slider("Days back", min_value=7, max_value=90, value=90, step=7)
+    date_range = st.select_slider(
+        "Time Range",
+        options=["30 days", "90 days", "1 year", "2 years", "All time"],
+        value="All time",
+    )
 
     st.markdown("---")
     st.markdown("**Quick Stats**")
@@ -568,9 +572,10 @@ if not filtered.empty:
         filtered = filtered[filtered["severity"] == selected_severity]
     if selected_retailer != "All Retailers" and "retailer" in filtered.columns:
         filtered = filtered[filtered["retailer"] == selected_retailer]
-    if "detected_at" in filtered.columns:
+    if "detected_at" in filtered.columns and date_range != "All time":
+        _days_map = {"30 days": 30, "90 days": 90, "1 year": 365, "2 years": 730}
         filtered["detected_at"] = pd.to_datetime(filtered["detected_at"], utc=True)
-        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=date_range)
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=_days_map[date_range])
         filtered = filtered[filtered["detected_at"] >= cutoff]
 
 
