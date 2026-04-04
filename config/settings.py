@@ -1,15 +1,41 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 # Try Streamlit secrets first (for Streamlit Cloud), fall back to env vars
 def _get_secret(key, default=""):
+    # Method 1: Streamlit secrets (st.secrets["KEY"])
     try:
         import streamlit as st
-        return st.secrets.get(key, os.getenv(key, default))
+        if hasattr(st, "secrets"):
+            # Try dict-style access first (most reliable on Streamlit Cloud)
+            try:
+                val = st.secrets[key]
+                if val:
+                    logger.info(f"Secret '{key}' loaded from Streamlit secrets")
+                    return val
+            except (KeyError, Exception):
+                pass
+            # Try .get() as fallback
+            try:
+                val = st.secrets.get(key)
+                if val:
+                    logger.info(f"Secret '{key}' loaded from Streamlit secrets (.get)")
+                    return val
+            except Exception:
+                pass
     except Exception:
-        return os.getenv(key, default)
+        pass
+
+    # Method 2: Environment variable
+    val = os.getenv(key, default)
+    if val and val != default:
+        logger.info(f"Secret '{key}' loaded from environment variable")
+    return val
 
 DATABASE_URL = _get_secret("DATABASE_URL", "sqlite:///shrinkflation.db")
 KROGER_CLIENT_ID = _get_secret("KROGER_CLIENT_ID")

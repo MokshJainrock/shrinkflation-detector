@@ -24,7 +24,18 @@ _token_cache: dict = {"access_token": None, "expires_at": 0}
 def get_kroger_token() -> str | None:
     """Get or refresh Kroger OAuth2 access token."""
     if not KROGER_CLIENT_ID or not KROGER_CLIENT_SECRET:
-        logger.warning("Kroger credentials not configured — skipping Kroger scraper")
+        logger.warning(
+            "Kroger credentials not configured — skipping Kroger scraper. "
+            f"CLIENT_ID present: {bool(KROGER_CLIENT_ID)}, "
+            f"CLIENT_SECRET present: {bool(KROGER_CLIENT_SECRET)}"
+        )
+        print(
+            f"[Kroger] Credentials check: "
+            f"CLIENT_ID={'SET' if KROGER_CLIENT_ID else 'MISSING'} "
+            f"(len={len(KROGER_CLIENT_ID) if KROGER_CLIENT_ID else 0}), "
+            f"CLIENT_SECRET={'SET' if KROGER_CLIENT_SECRET else 'MISSING'} "
+            f"(len={len(KROGER_CLIENT_SECRET) if KROGER_CLIENT_SECRET else 0})"
+        )
         return None
 
     now = time.time()
