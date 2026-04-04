@@ -547,12 +547,12 @@ with st.sidebar:
     col_s2.metric("Flags", f"{len(flags_df):,}")
 
     st.markdown("---")
-    st.markdown("**How Data Updates:**")
+    st.markdown("**How Data Works:**")
     st.markdown("""
-    - **Seed data**: 543 verified cases across 9 retailers from BLS, Consumer Reports, FTC
-    - **Live updates**: Open Food Facts API scanned every hour
-    - **New products**: Auto-added when found in API
-    - **Size changes**: Auto-flagged when detected
+    - **Baseline**: 543 verified cases from BLS, Consumer Reports, FTC, mouseprint.org
+    - **Live pipeline**: Scheduled hourly scans of Open Food Facts API (when app is active)
+    - **New products**: Auto-added when found in API scans
+    - **Size changes**: Auto-flagged when detected in new snapshots
     - **Dashboard**: Refreshes every 5 minutes
     """)
 
@@ -567,11 +567,11 @@ with st.sidebar:
         )
         _log_session.close()
         if _last_run:
-            st.success(f"Last live scan: {_last_run.generated_at.strftime('%Y-%m-%d %H:%M')} UTC")
+            st.success(f"Last API scan: {_last_run.generated_at.strftime('%Y-%m-%d %H:%M')} UTC")
         else:
-            st.info("Live scan runs when dashboard loads")
+            st.info("Scheduled pipeline will run on next cycle")
     except Exception:
-        st.info("Live scan runs when dashboard loads")
+        st.info("Scheduled pipeline will run on next cycle")
 
     st.markdown("---")
     st.markdown("**Sources:**")
@@ -617,16 +617,16 @@ except Exception:
 
 if _last_ingest:
     _mins_ago = int((_now_utc - _last_ingest.generated_at.replace(tzinfo=timezone.utc)).total_seconds() / 60)
-    _update_badge = '<span class="update-status update-live">LIVE — auto-updating hourly</span>'
-    _update_detail = f"Last ingestion run: {_mins_ago}m ago — Open Food Facts + Open Prices APIs"
+    _update_badge = '<span class="update-status update-live">Real Data — Scheduled Pipeline</span>'
+    _update_detail = f"Last scan: {_mins_ago}m ago — verified data + Open Food Facts + Open Prices APIs"
 else:
-    _update_badge = '<span class="update-status update-live">LIVE — pipeline active</span>'
-    _update_detail = "Ingestion pipeline running — first scan in progress"
+    _update_badge = '<span class="update-status update-live">Real Data — Verified Sources</span>'
+    _update_detail = "Baseline: 543 verified cases from BLS, Consumer Reports, FTC &middot; Live pipeline scheduled"
 
 st.markdown(f"""
 <div class="main-header">
     <h1>Shrinkflation Detector {_update_badge}</h1>
-    <p>Tracking verified shrinkflation across {total_prods:,} grocery products at Walmart, Kroger & Target
+    <p>Monitoring {total_prods:,} grocery products across Walmart, Kroger, Target & more
     &middot; {total_flags:,} flagged products match your filters
     &middot; Dashboard refreshed {_now_utc.strftime('%b %d, %Y %H:%M UTC')}</p>
     <p style="margin-top:4px; font-size:0.8rem; color:#64748b">{_update_detail}</p>
@@ -1277,8 +1277,8 @@ st.markdown(f"""
     <strong>Shrinkflation Detector</strong><br>
     5,598 products from 543 verified shrinkflation cases across 9 US retailers.<br>
     Data sourced from BLS, Consumer Reports, mouseprint.org, FTC filings, and media reports (NYT, WSJ, NPR, CNN, BBC).<br>
-    Live updates from <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API (free, open-source).<br>
-    Auto-updates: Live API scan every hour &middot; Dashboard refresh every 5 minutes &middot; Next scan ~{(_now_utc + timedelta(hours=1)).strftime('%H:%M UTC')}<br>
+    Supports live tracking via <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> + <a href="https://prices.openfoodfacts.org/" target="_blank">Open Prices</a> APIs (free, open-source).<br>
+    Scheduled pipeline: API scan every hour (when active) &middot; Dashboard refresh every 5 minutes<br>
     Built with Python, Streamlit, SQLAlchemy, and Plotly
 </div>
 """, unsafe_allow_html=True)
