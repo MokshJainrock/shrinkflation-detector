@@ -567,8 +567,12 @@ _update_badge = '<span class="update-status update-live">LIVE — scanning every
 _parts = []
 if _new_p or _new_s:
     _parts.append(f"+{_new_p} products, +{_new_s} snapshots from Open Food Facts")
+if _scan_result.get("off_error"):
+    _parts.append(f"OFF error: {_scan_result['off_error'][:60]}")
 if _kr_s:
     _parts.append(f"+{_kr_s} prices from Kroger")
+if _scan_result.get("kroger_error"):
+    _parts.append(f"Kroger: {_scan_result['kroger_error'][:80]}")
 _update_detail = "Live scan: " + (" | ".join(_parts) if _parts else "scan complete, no new data this tick")
 
 st.markdown(f"""
