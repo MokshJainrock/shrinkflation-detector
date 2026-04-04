@@ -631,7 +631,7 @@ st.markdown(f"""
 if isinstance(stats, dict) and "error" not in stats:
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Products Tracked", f"{stats['total_products_tracked']:,}")
-    m2.metric("Shrinks Detected", f"{stats['shrinks_detected_this_month']:,}")
+    m2.metric("Shrinks Detected", f"{stats['shrinks_detected']:,}")
     m3.metric("Avg Hidden Increase", f"+{stats['avg_hidden_price_increase_pct']:.1f}%")
     m4.metric("Worst Category", stats["worst_category"].title())
     m5.metric("Worst Brand", stats["worst_brand"])

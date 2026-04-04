@@ -23,39 +23,34 @@ def _safe_query(fn):
 
 @_safe_query
 def get_summary_stats() -> dict:
-    """Returns total products tracked, shrinks this month, avg hidden price increase, worst category, worst brand."""
+    """Returns total products tracked, total shrinks detected, avg hidden price increase, worst category, worst brand."""
     session = get_session()
-    month_ago = datetime.now(timezone.utc) - timedelta(days=30)
 
     total_products = session.query(func.count(Product.id)).scalar() or 0
-    total_shrinks_month = (
+    total_shrinks = (
         session.query(func.count(ShrinkflationFlag.id))
-        .filter(ShrinkflationFlag.detected_at >= month_ago)
         .scalar() or 0
     )
     avg_increase = (
         session.query(func.avg(ShrinkflationFlag.real_price_increase_pct))
-        .filter(ShrinkflationFlag.detected_at >= month_ago)
         .scalar()
     )
     avg_increase = round(float(avg_increase), 1) if avg_increase else 0.0
 
-    # Worst category
+    # Worst category (most flags overall)
     worst_cat_row = (
         session.query(Product.category, func.count(ShrinkflationFlag.id).label("cnt"))
         .join(ShrinkflationFlag, ShrinkflationFlag.product_id == Product.id)
-        .filter(ShrinkflationFlag.detected_at >= month_ago)
         .group_by(Product.category)
         .order_by(desc("cnt"))
         .first()
     )
     worst_category = worst_cat_row[0] if worst_cat_row else "N/A"
 
-    # Worst brand
+    # Worst brand (most flags overall)
     worst_brand_row = (
         session.query(Product.brand, func.count(ShrinkflationFlag.id).label("cnt"))
         .join(ShrinkflationFlag, ShrinkflationFlag.product_id == Product.id)
-        .filter(ShrinkflationFlag.detected_at >= month_ago)
         .group_by(Product.brand)
         .order_by(desc("cnt"))
         .first()
@@ -65,7 +60,7 @@ def get_summary_stats() -> dict:
     session.close()
     return {
         "total_products_tracked": total_products,
-        "shrinks_detected_this_month": total_shrinks_month,
+        "shrinks_detected": total_shrinks,
         "avg_hidden_price_increase_pct": avg_increase,
         "worst_category": worst_category,
         "worst_brand": worst_brand,
