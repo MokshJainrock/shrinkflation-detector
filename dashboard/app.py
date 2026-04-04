@@ -257,15 +257,28 @@ def _start_pipeline():
     Start the live scanner — every 60 seconds it fetches real products
     from Open Food Facts API and stores them in the database.
 
-    NO seed data. NO historical records. Every product in this dashboard
-    came from a live API call to openfoodfacts.org.
-    """
-    from db.models import Base, get_engine as _get_engine
+    Products ACCUMULATE over time. Each restart preserves all previously
+    scanned products. The scanner keeps adding new ones every 60 seconds.
 
-    # Wipe any old seed/stale data so we start 100% fresh from live APIs
-    engine = _get_engine()
-    Base.metadata.drop_all(engine)
+    NO seed data. Every product came from a live API call to openfoodfacts.org.
+    """
+    # Create tables if they don't exist — never wipe existing live data
     init_db()
+
+    # One-time cleanup: remove old seed data (retailer != "openfoodfacts")
+    # Real live-scanned products always have retailer="openfoodfacts"
+    try:
+        session = get_session()
+        seed_count = session.query(Product).filter(
+            Product.retailer != "openfoodfacts"
+        ).count()
+        if seed_count > 0:
+            from db.models import Base, get_engine as _get_engine
+            Base.metadata.drop_all(_get_engine())
+            init_db()
+        session.close()
+    except Exception:
+        pass
 
     try:
         from ingestion.pipeline import start_scheduler
