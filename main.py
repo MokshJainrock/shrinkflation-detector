@@ -105,32 +105,28 @@ def cmd_seed():
 
 def cmd_live():
     """
-    Start the continuous background scheduler and block until Ctrl+C.
-
-    Schedule:
-      • Every 1 hour     — Open Food Facts category ingest + shrinkflation detection
-      • Daily 03:00 UTC  — Full verified-case deep scan + Open Prices price fetch
+    Start the live scanner — scans Open Food Facts every 60 seconds.
+    Blocks until Ctrl+C.
     """
     import time
     from db.models import init_db
     from ingestion.pipeline import start_scheduler, stop_scheduler
 
     print("=" * 60)
-    print("Shrinkflation Detector — Live Ingestion Pipeline")
-    print("  Hourly:  Open Food Facts category scan")
-    print("  Daily:   Verified shrinkflation case deep-scan (03:00 UTC)")
-    print("Press Ctrl+C to stop.")
+    print("Shrinkflation Detector — Live Scanner")
+    print("  Scanning Open Food Facts every 60 seconds")
+    print("  Press Ctrl+C to stop")
     print("=" * 60)
 
     init_db()
-    start_scheduler(run_immediately=True)
+    start_scheduler()
 
     try:
         while True:
             time.sleep(60)
     except KeyboardInterrupt:
         stop_scheduler()
-        print("\nPipeline stopped.")
+        print("\nStopped.")
 
 
 def main():

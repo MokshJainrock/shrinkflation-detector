@@ -83,10 +83,12 @@ def run_live_update(max_categories=5):
     }
 
     # Rotate through categories — check different ones each run
-    day_offset = datetime.now(timezone.utc).timetuple().tm_yday % len(TRACKED_CATEGORIES)
+    # Uses minute-of-day so each 60s tick scans different categories
+    now_utc = datetime.now(timezone.utc)
+    minute_offset = (now_utc.hour * 60 + now_utc.minute) % len(TRACKED_CATEGORIES)
     categories_to_check = []
     for i in range(max_categories):
-        idx = (day_offset + i) % len(TRACKED_CATEGORIES)
+        idx = (minute_offset + i) % len(TRACKED_CATEGORIES)
         categories_to_check.append(TRACKED_CATEGORIES[idx])
 
     for category in categories_to_check:
@@ -140,11 +142,11 @@ def run_live_update(max_categories=5):
                 .first()
             )
 
-            # Only create new snapshot if it's been > 12 hours since last one
+            # Only create new snapshot if it's been > 1 hour since last one
             if last_snap and last_snap.scraped_at:
                 time_since = datetime.now(timezone.utc) - last_snap.scraped_at.replace(tzinfo=timezone.utc) \
                     if last_snap.scraped_at.tzinfo is None else datetime.now(timezone.utc) - last_snap.scraped_at
-                if time_since < timedelta(hours=12):
+                if time_since < timedelta(hours=1):
                     continue
 
             # Create snapshot

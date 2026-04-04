@@ -246,206 +246,32 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Auto-refresh every 5 minutes (300s)
-st_autorefresh(interval=300000, key="data_refresh")
+# Auto-refresh every 60 seconds to show new live data
+st_autorefresh(interval=60000, key="data_refresh")
 
 
-# ---- Database init + live pipeline ───────────────────────────────────────
+# ---- Live-only pipeline (no seed data) ───────────────────────────────────
 @st.cache_resource
 def _start_pipeline():
     """
-    Two-phase startup (runs once per Streamlit Cloud app lifecycle):
+    Start the live scanner — every 60 seconds it fetches real products
+    from Open Food Facts API and stores them in the database.
 
-    Phase 1 (instant, <1 second):
-      Load 543 verified shrinkflation cases from documented public sources
-      directly into the DB so the dashboard has real data immediately.
-      These are real products with real sizes/prices from BLS, Consumer
-      Reports, mouseprint.org, FTC, and media investigations.
-
-    Phase 2 (background, ongoing):
-      Start APScheduler with two recurring jobs:
-        • Every 1 hour  → fetch latest products from Open Food Facts API,
-                          store new size snapshots, run shrinkflation detector
-        • Daily 03:00 UTC → deep-scan all cases via OFF API for live current
-                            sizes, cross-reference with Open Prices API for
-                            real receipt prices, run full detection pass
-
-      The live pipeline progressively enriches the baseline data with live
-      API responses — real barcodes, real current sizes, real retail prices.
+    NO seed data. NO historical records. Every product in this dashboard
+    came from a live API call to openfoodfacts.org.
     """
+    from db.models import Base, get_engine as _get_engine
+
+    # Wipe any old seed/stale data so we start 100% fresh from live APIs
+    engine = _get_engine()
+    Base.metadata.drop_all(engine)
     init_db()
-    session = get_session()
-    product_count = session.query(Product).count()
-    flag_count = session.query(ShrinkflationFlag).count()
-    session.close()
 
-    # ── Phase 1: instant baseline from verified cases ────────────────────
-    # Seed if DB is empty OR if products exist but no flags (prior broken deploy)
-    if product_count == 0 or flag_count == 0:
-        try:
-            if product_count > 0 and flag_count == 0:
-                # Products exist but no flags — wipe and reseed cleanly
-                from db.models import Base, get_engine as _get_engine
-                Base.metadata.drop_all(_get_engine())
-                init_db()
-            from data.verified_cases import VERIFIED_CASES, STABLE_PRODUCTS, RETAILERS
-            _seed_verified_baseline(VERIFIED_CASES, STABLE_PRODUCTS, RETAILERS)
-        except Exception as e:
-            st.warning(f"Could not load baseline data: {e}")
-    is_empty = product_count == 0
-
-    # ── Phase 2: start background live pipeline ──────────────────────────
     try:
         from ingestion.pipeline import start_scheduler
-        start_scheduler(run_immediately=is_empty)
+        start_scheduler()
     except Exception as e:
-        # Scheduler failure must not crash the dashboard
-        st.warning(f"Background pipeline could not start: {e}")
-
-
-def _seed_verified_baseline(verified_cases, stable_products, retailers):
-    """
-    Load verified shrinkflation cases directly into the DB (no API calls).
-
-    This gives the dashboard real data to display within 1 second of first
-    deploy.  The background pipeline will later enrich these records with
-    live sizes and prices from Open Food Facts + Open Prices APIs.
-
-    All data here is from documented public investigations — no fabrication.
-    """
-    from db.models import (
-        Product, ProductSnapshot, ShrinkflationFlag, AgentInsight,
-        get_session, init_db,
-    )
-    from datetime import timedelta
-
-    init_db()
-    session = get_session()
-
-    # Double-check (race condition guard)
-    if session.query(Product).count() > 0:
-        session.close()
-        return
-
-    now = datetime.now(timezone.utc)
-    products_created = []
-    seen = set()
-
-    # ── Shrunk products ──────────────────────────────────────────────────
-    for case in verified_cases:
-        brand, name, category, old_size, new_size, unit, old_price, new_price, year, source = case
-        for retailer in retailers:
-            key = (brand, name, retailer)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            p = Product(
-                name=f"{brand} {name}",
-                brand=brand,
-                category=category,
-                barcode=None,
-                retailer=retailer,
-            )
-            session.add(p)
-            session.flush()
-            products_created.append({
-                "product": p, "old_size": old_size, "new_size": new_size,
-                "unit": unit, "old_price": old_price, "new_price": new_price,
-                "shrinks": True, "year": year,
-            })
-
-    # ── Stable baselines ─────────────────────────────────────────────────
-    for item in stable_products:
-        brand, name, category, size, unit, price = item
-        for retailer in retailers:
-            key = (brand, name, retailer)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            p = Product(
-                name=f"{brand} {name}",
-                brand=brand,
-                category=category,
-                barcode=None,
-                retailer=retailer,
-            )
-            session.add(p)
-            session.flush()
-            products_created.append({
-                "product": p, "old_size": size, "new_size": size,
-                "unit": unit, "old_price": price, "new_price": price,
-                "shrinks": False, "year": 2024,
-            })
-
-    session.commit()
-
-    # ── Snapshots (before + after) ───────────────────────────────────────
-    batch = 0
-    for item in products_created:
-        p = item["product"]
-        year = item["year"]
-
-        old_ppu = round(item["old_price"] / item["old_size"], 4) if item["old_size"] > 0 else None
-        new_ppu = round(item["new_price"] / item["new_size"], 4) if item["new_size"] > 0 else None
-
-        session.add(ProductSnapshot(
-            product_id=p.id, size_value=item["old_size"], size_unit=item["unit"],
-            price=item["old_price"], price_per_unit=old_ppu,
-            scraped_at=datetime(year, 1, 15, tzinfo=timezone.utc),
-        ))
-        session.add(ProductSnapshot(
-            product_id=p.id, size_value=item["new_size"], size_unit=item["unit"],
-            price=item["new_price"], price_per_unit=new_ppu,
-            scraped_at=datetime(year, 7, 15, tzinfo=timezone.utc),
-        ))
-        batch += 2
-        if batch >= 5000:
-            session.commit()
-            batch = 0
-    session.commit()
-
-    # ── Shrinkflation flags ──────────────────────────────────────────────
-    flagged = 0
-    for item in products_created:
-        if not item["shrinks"]:
-            continue
-        p = item["product"]
-        old_ppu = item["old_price"] / item["old_size"]
-        new_ppu = item["new_price"] / item["new_size"]
-        real_increase = ((new_ppu - old_ppu) / old_ppu) * 100
-
-        severity = "HIGH" if real_increase > 10 else ("MEDIUM" if real_increase > 5 else "LOW")
-
-        session.add(ShrinkflationFlag(
-            product_id=p.id,
-            old_size=item["old_size"], new_size=item["new_size"],
-            old_price=item["old_price"], new_price=item["new_price"],
-            real_price_increase_pct=round(real_increase, 2),
-            severity=severity,
-            detected_at=datetime(item["year"], 6, 1, tzinfo=timezone.utc),
-            retailer=p.retailer,
-        ))
-        flagged += 1
-        if flagged % 2000 == 0:
-            session.commit()
-
-    # ── Summary insight ──────────────────────────────────────────────────
-    session.add(AgentInsight(
-        insight_type="daily",
-        content=(
-            f"Baseline loaded: {len(products_created):,} products across "
-            f"{len(retailers)} retailers with {flagged:,} verified shrinkflation "
-            f"flags from BLS, Consumer Reports, mouseprint.org, FTC, and media "
-            f"investigations.  Live pipeline running — will enrich with real-time "
-            f"sizes and prices from Open Food Facts + Open Prices APIs."
-        ),
-        generated_at=now,
-    ))
-
-    session.commit()
-    session.close()
+        st.warning(f"Live scanner could not start: {e}")
 
 
 _start_pipeline()
@@ -558,7 +384,7 @@ with st.sidebar:
     col_s2.metric("Flags", f"{len(flags_df):,}")
 
     st.markdown("---")
-    st.caption("Data refreshes automatically every 5 minutes")
+    st.caption("Live data from Open Food Facts API. Refreshes every 60s.")
 
 # ---- Apply filters ----
 filtered = flags_df.copy()
@@ -599,27 +425,28 @@ except Exception:
     _last_ingest = None
 
 if _last_ingest:
-    _mins_ago = int((_now_utc - _last_ingest.generated_at.replace(tzinfo=timezone.utc)).total_seconds() / 60)
-    _update_badge = '<span class="update-status update-live">Real Data — Scheduled Pipeline</span>'
-    _update_detail = f"Last scan: {_mins_ago}m ago — verified data + Open Food Facts + Open Prices APIs"
+    _secs_ago = int((_now_utc - _last_ingest.generated_at.replace(tzinfo=timezone.utc)).total_seconds())
+    if _secs_ago < 120:
+        _ago_str = f"{_secs_ago}s ago"
+    else:
+        _ago_str = f"{_secs_ago // 60}m ago"
+    _update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
+    _update_detail = f"Last scan: {_ago_str} — all data from Open Food Facts API (live)"
 else:
-    _update_badge = '<span class="update-status update-live">Real Data — Verified Sources</span>'
-    _update_detail = "Baseline: 543 verified cases from BLS, Consumer Reports, FTC &middot; Live pipeline scheduled"
+    _update_badge = '<span class="update-status update-live">LIVE — starting scanner...</span>'
+    _update_detail = "First scan in progress — products will appear within 60 seconds"
 
 st.markdown(f"""
 <div class="main-header">
     <h1>Shrinkflation Detector {_update_badge}</h1>
-    <p>Monitoring {total_prods:,} grocery products across Walmart, Kroger, Target & more
-    &middot; {total_flags:,} flagged products match your filters
-    &middot; Dashboard refreshed {_now_utc.strftime('%b %d, %Y %H:%M UTC')}</p>
+    <p>{total_prods:,} products scanned from Open Food Facts
+    &middot; {total_flags:,} shrinkflation flags detected
+    &middot; Refreshed {_now_utc.strftime('%b %d, %Y %H:%M:%S UTC')}</p>
     <p style="margin-top:4px; font-size:0.8rem; color:#64748b">{_update_detail}</p>
     <p style="margin-top:6px">
-        <span class="source-badge">BLS Data</span>
-        <span class="source-badge">Consumer Reports</span>
-        <span class="source-badge">mouseprint.org</span>
-        <span class="source-badge">FTC Filings</span>
         <span class="source-badge">Open Food Facts API</span>
-        <span class="source-badge">Media Reports</span>
+        <span class="source-badge">Open Prices API</span>
+        <span class="source-badge">100% Live Data</span>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -1260,7 +1087,7 @@ if not filtered.empty:
             )
 
 else:
-    st.info("No flagged products detected yet. The scheduled pipeline will populate data automatically.")
+    st.info("Scanner is running — products from Open Food Facts will appear as they're fetched. Dashboard refreshes every 60 seconds.")
 
 # =====================================================================
 # FOOTER
@@ -1268,11 +1095,11 @@ else:
 st.markdown("---")
 st.markdown(f"""
 <div class="footer">
-    <strong>Shrinkflation Detector</strong><br>
-    5,598 products from 543 verified shrinkflation cases across 9 US retailers.<br>
-    Data sourced from BLS, Consumer Reports, mouseprint.org, FTC filings, and media reports (NYT, WSJ, NPR, CNN, BBC).<br>
-    Supports live tracking via <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> + <a href="https://prices.openfoodfacts.org/" target="_blank">Open Prices</a> APIs (free, open-source).<br>
-    Scheduled pipeline: API scan every hour (when active) &middot; Dashboard refresh every 5 minutes<br>
-    Built with Python, Streamlit, SQLAlchemy, and Plotly
+    <strong>Shrinkflation Detector</strong> — 100% live data<br>
+    All products fetched from <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API.
+    Prices from <a href="https://prices.openfoodfacts.org/" target="_blank">Open Prices</a> API (crowd-sourced receipt scans).<br>
+    Live scanner runs every 60 seconds &middot; Dashboard auto-refreshes every 60 seconds<br>
+    No seed data, no historical records — every row is from a live API call.<br>
+    Built with Python, Streamlit, SQLAlchemy, APScheduler, and Plotly
 </div>
 """, unsafe_allow_html=True)
