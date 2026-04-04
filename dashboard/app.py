@@ -555,36 +555,7 @@ with st.sidebar:
     col_s2.metric("Flags", f"{len(flags_df):,}")
 
     st.markdown("---")
-    st.markdown("**How Data Works:**")
-    st.markdown("""
-    - **Baseline**: 543 verified cases from BLS, Consumer Reports, FTC, mouseprint.org
-    - **Live pipeline**: Scheduled hourly scans of Open Food Facts API (when app is active)
-    - **New products**: Auto-added when found in API scans
-    - **Size changes**: Auto-flagged when detected in new snapshots
-    - **Dashboard**: Refreshes every 5 minutes
-    """)
-
-    # Show last pipeline run time (read from DB log written by ingestion/pipeline.py)
-    try:
-        _log_session = get_session()
-        _last_run = (
-            _log_session.query(AgentInsight)
-            .filter(AgentInsight.insight_type.like("ingest_%"))
-            .order_by(AgentInsight.generated_at.desc())
-            .first()
-        )
-        _log_session.close()
-        if _last_run:
-            st.success(f"Last API scan: {_last_run.generated_at.strftime('%Y-%m-%d %H:%M')} UTC")
-        else:
-            st.info("Scheduled pipeline will run on next cycle")
-    except Exception:
-        st.info("Scheduled pipeline will run on next cycle")
-
-    st.markdown("---")
-    st.markdown("**Sources:**")
-    sources = ["BLS", "Consumer Reports", "mouseprint.org", "FTC", "Open Food Facts"]
-    st.markdown(" ".join([f'<span class="source-badge">{s}</span>' for s in sources]), unsafe_allow_html=True)
+    st.caption("Data refreshes automatically every 5 minutes")
 
 # ---- Apply filters ----
 filtered = flags_df.copy()
