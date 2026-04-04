@@ -20,8 +20,13 @@ logger = logging.getLogger(__name__)
 OFF_SEARCH_URL = "https://world.openfoodfacts.org/api/v2/search"
 
 # Required by OFF API — anonymous requests without User-Agent get 503
+# Include full browser-like headers to avoid 503 on cloud platforms
 OFF_HEADERS = {
-    "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector)"
+    "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector; contact@shrinkflation.app)",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
 }
 
 # Categories + search terms to check for size changes
@@ -60,12 +65,12 @@ def fetch_live_products(category, page_size=50):
                 "json": 1,
             },
             headers=OFF_HEADERS,
-            timeout=15,
+            timeout=8,  # Fast timeout — don't block app startup
         )
         resp.raise_for_status()
         return resp.json().get("products", [])
     except Exception as e:
-        logger.warning(f"Failed to fetch {category}: {e}")
+        print(f"Failed to fetch {category}: {e}")
         return []
 
 

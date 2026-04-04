@@ -64,7 +64,7 @@ def get_kroger_token() -> str | None:
     data = {"grant_type": "client_credentials", "scope": "product.compact"}
 
     try:
-        resp = requests.post(KROGER_TOKEN_URL, headers=headers, data=data, timeout=15)
+        resp = requests.post(KROGER_TOKEN_URL, headers=headers, data=data, timeout=8)
         resp.raise_for_status()
         token_data = resp.json()
         _token_cache["access_token"] = token_data["access_token"]
@@ -81,7 +81,7 @@ def search_kroger_products(query: str, token: str, limit: int = 10) -> list[dict
     params = {"filter.term": query, "filter.limit": limit}
 
     try:
-        resp = requests.get(KROGER_SEARCH_URL, headers=headers, params=params, timeout=15)
+        resp = requests.get(KROGER_SEARCH_URL, headers=headers, params=params, timeout=8)
         resp.raise_for_status()
         return resp.json().get("data", [])
     except requests.RequestException as e:
@@ -132,8 +132,9 @@ def extract_price(kroger_item: dict) -> tuple[float | None, float | None]:
     return price, price_per_unit
 
 
-def scrape_kroger():
-    """Main Kroger scraper — searches for products and adds price snapshots."""
+def scrape_kroger(max_categories=3):
+    """Main Kroger scraper — searches for products and adds price snapshots.
+    Only checks a few categories per tick to stay within time limits."""
     token = get_kroger_token()
     if not token:
         print("Kroger: No valid credentials, skipping.")
@@ -143,9 +144,18 @@ def scrape_kroger():
     total_matched = 0
     total_snapshots = 0
 
-    print(f"Scraping Kroger — {len(OFF_CATEGORIES)} categories")
+    # Rotate through categories each tick (like OFF scanner does)
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    minute_offset = (now_utc.hour * 60 + now_utc.minute) % len(OFF_CATEGORIES)
+    categories_to_check = []
+    for i in range(min(max_categories, len(OFF_CATEGORIES))):
+        idx = (minute_offset + i) % len(OFF_CATEGORIES)
+        categories_to_check.append(OFF_CATEGORIES[idx])
 
-    for category in OFF_CATEGORIES:
+    print(f"Scraping Kroger — {len(categories_to_check)} of {len(OFF_CATEGORIES)} categories this tick")
+
+    for category in categories_to_check:
         print(f"  Searching Kroger for: {category}...")
 
         # Get existing products in this category from our DB
