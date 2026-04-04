@@ -1,87 +1,52 @@
 # Shrinkflation Detector
 
-A data pipeline and dashboard that tracks grocery product sizes and prices, detects shrinkflation (when products get smaller but prices stay the same or increase), and surfaces findings through an interactive dashboard.
+A **live** data pipeline that scans Open Food Facts every 60 seconds, detects shrinkflation (when products get smaller but prices stay the same or increase), and shows results in a real-time dashboard.
+
+**No seed data. No historical records. Every product comes from a live API call.**
 
 ## Live Demo
 
 [shrinkflation-detector-t2ltg2v33krb7w2fsdup4a.streamlit.app](https://shrinkflation-detector-t2ltg2v33krb7w2fsdup4a.streamlit.app/)
 
-## Why This Matters
+## How It Works
 
-- **Consumers**: See which brands are secretly raising prices by shrinking products
-- **Journalists**: Data-driven stories on corporate pricing deception
-- **Policy**: Evidence for consumer protection and price transparency legislation
+```
+Open Food Facts API ──→ APScheduler ──→ SQLite DB ──→ Detector ──→ Dashboard
+(every 60 seconds)      (background)    (snapshots)   (compare     (auto-refresh
+                                                       sizes)       every 60s)
+```
+
+1. **Every 60 seconds**: Scanner fetches real products from [Open Food Facts](https://world.openfoodfacts.org/) — 2 categories per tick, rotating through 17 categories (chips, cereal, ice cream, yogurt, cookies, crackers, pasta, candy, bread, coffee, ketchup, mayo, peanut butter, juice, frozen meals, detergent, soap)
+2. **Snapshot stored**: Each product's current size, brand, barcode saved with timestamp
+3. **Detection**: If same product appears later with a smaller size → shrinkflation flag created
+4. **Dashboard**: Auto-refreshes every 60 seconds to show latest scan results
 
 ## Data Sources
 
-| Source | What it provides | Type |
-|--------|-----------------|------|
-| **BLS, Consumer Reports, FTC, mouseprint.org, media** | 543 verified shrinkflation cases with documented old/new sizes and prices | Baseline (loaded on first deploy) |
-| **Open Food Facts API** | Real product sizes, barcodes, brands — crowdsourced, free, no API key | Scheduled pipeline (hourly when app is active) |
-| **Open Prices API** | Crowd-sourced real retail prices from scanned grocery receipts | Scheduled pipeline (daily) |
+| Source | What it provides |
+|--------|-----------------|
+| **[Open Food Facts API](https://world.openfoodfacts.org/)** | Real product sizes, barcodes, brands — crowdsourced, free, no API key |
+| **[Open Prices API](https://prices.openfoodfacts.org/)** | Crowd-sourced real retail prices from scanned grocery receipts |
 
-No fabricated, random, or simulated data. Every record traces to a documented public source or a live API response.
-
-## Architecture
-
-```
-Verified Cases (BLS/CR/FTC)  ──→  SQLite DB  ──→  Detector  ──→  Streamlit Dashboard
-                                      ↑               ↓            (charts, filters,
-Open Food Facts API ─────────────→  Snapshots     Flags              AI insights)
-Open Prices API ─────────────────→  (scheduled)   (severity)
-                                      ↑
-                              APScheduler (background)
-                              • Hourly: OFF category scan
-                              • Daily: verified case deep-scan
-```
-
-## How the Pipeline Works
-
-1. **On first deploy**: 543 verified cases × 9 retailers = 5,598 products loaded instantly (<1 second)
-2. **Every hour** (when app is active): APScheduler fetches the most recently updated products from Open Food Facts, stores new size snapshots, runs the shrinkflation detector
-3. **Daily at 03:00 UTC**: Deep-scans all verified cases via OFF API to get current live sizes, cross-references with Open Prices API for real retail prices, discovers new size changes
-4. **Detection**: Compares current snapshot vs previous — flags any product whose size decreased >2%
+Zero fabricated, random, simulated, or seeded data.
 
 ## Features
 
-- **Shrinkflation detector** compares product sizes over time, flags decreases > 2%
-- **Severity scoring**: HIGH (>10% hidden increase), MEDIUM (5-10%), LOW (<5%)
-- **Scheduled data pipeline** via APScheduler — hourly OFF scan + daily deep-scan
-- **AI Agent** powered by OpenAI that can:
-  - Answer natural language questions about the data
-  - Generate daily insights automatically
-  - Compile weekly markdown reports
-- **Interactive dashboard** with auto-refresh, Plotly charts, and search/filter
-- **5,598 real products** from documented shrinkflation investigations
+- **Live scanner** — fetches real products every 60 seconds via APScheduler
+- **Shrinkflation detector** — flags products whose size decreased >2%
+- **Severity scoring** — HIGH (>10%), MEDIUM (5-10%), LOW (<5%)
+- **Real-time dashboard** — auto-refreshes every 60 seconds
+- **Filters** — by category, brand, severity, retailer, time range
+- **Charts** — worst brands, severity breakdown, category analysis, trends
 
-## Dashboard Tabs
-
-1. **Metrics row** — total products, shrinks detected, avg hidden increase, worst category/brand
-2. **Worst brands chart** — horizontal bar chart of top offenders
-3. **Weekly trend** — line chart of new shrinkflation detections over time
-4. **Category breakdown** — shrinkflation rate by product category
-5. **AI Insights** — auto-generated daily insight + "Ask the Data" chatbot
-6. **Flagged products table** — searchable, filterable, color-coded by severity
-7. **Product deep dive** — full history timeline for any product
-
-## CLI Usage
+## CLI
 
 ```bash
-python main.py --seed       # Run one full ingestion cycle (live APIs)
-python main.py --reseed     # Wipe DB then run fresh live ingestion
-python main.py --live       # Start continuous scheduler (hourly + daily)
-python main.py --analyze    # Run shrinkflation detector on all products
-python main.py --dashboard  # Launch Streamlit on localhost:8501
+python main.py --live       # Start live scanner (every 60s, runs until Ctrl+C)
+python main.py --seed       # Run one scan tick
+python main.py --reseed     # Wipe DB then run one scan tick
+python main.py --dashboard  # Launch Streamlit dashboard
 ```
-
-## Honest Status
-
-| Claim | Status |
-|-------|--------|
-| Real verified data | ✅ 543 documented cases from BLS, Consumer Reports, FTC, media |
-| Live API integration | ✅ Open Food Facts + Open Prices APIs, scheduled via APScheduler |
-| Continuously running 24/7 | ⚠️ Runs while Streamlit Cloud app is active (sleeps when idle) |
-| Real retail prices | ✅ Crowd-sourced from Open Prices (receipt scans), not fabricated |
 
 ## Tech Stack
 
