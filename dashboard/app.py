@@ -516,7 +516,6 @@ def load_latest_insight():
 # ---- Load data ----
 flags_df = load_flags()
 products_df = load_all_products()
-stats = get_summary_stats()
 
 # =====================================================================
 # SIDEBAR — Filters (touch-friendly)
@@ -626,17 +625,29 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# METRICS ROW
+# METRICS ROW — computed from filtered data, responds to all filters
 # =====================================================================
-if isinstance(stats, dict) and "error" not in stats:
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Products Tracked", f"{stats['total_products_tracked']:,}")
-    m2.metric("Shrinks Detected", f"{stats.get('shrinks_detected', stats.get('shrinks_detected_this_month', 0)):,}")
-    m3.metric("Avg Hidden Increase", f"+{stats['avg_hidden_price_increase_pct']:.1f}%")
-    m4.metric("Worst Category", stats["worst_category"].title())
-    m5.metric("Worst Brand", stats["worst_brand"])
+m1, m2, m3, m4, m5 = st.columns(5)
+m1.metric("Products Tracked", f"{len(products_df):,}")
+m2.metric("Shrinks Detected", f"{len(filtered):,}")
+
+if not filtered.empty and "real_price_increase_pct" in filtered.columns:
+    _avg_inc = filtered["real_price_increase_pct"].mean()
+    m3.metric("Avg Hidden Increase", f"+{_avg_inc:.1f}%")
 else:
-    st.info("Loading data...")
+    m3.metric("Avg Hidden Increase", "+0.0%")
+
+if not filtered.empty and "category" in filtered.columns:
+    _worst_cat = filtered["category"].value_counts().idxmax()
+    m4.metric("Worst Category", _worst_cat.title())
+else:
+    m4.metric("Worst Category", "N/A")
+
+if not filtered.empty and "brand" in filtered.columns:
+    _worst_brand = filtered["brand"].value_counts().idxmax()
+    m5.metric("Worst Brand", _worst_brand)
+else:
+    m5.metric("Worst Brand", "N/A")
 
 st.markdown("")
 
