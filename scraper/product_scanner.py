@@ -41,12 +41,17 @@ OFF_FIELDS = (
 # How long to wait between API calls (seconds) — stay within free tier
 API_RATE_LIMIT = 1.0
 
+# Required by OFF API — anonymous requests without User-Agent get 503
+OFF_HEADERS = {
+    "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector)"
+}
+
 
 def _get(url, params=None, timeout=20, retries=3):
     """HTTP GET with retry logic and rate limiting."""
     for attempt in range(retries):
         try:
-            resp = requests.get(url, params=params, timeout=timeout)
+            resp = requests.get(url, params=params, headers=OFF_HEADERS, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.HTTPError as e:
