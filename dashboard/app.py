@@ -250,49 +250,39 @@ st.markdown("""
 st_autorefresh(interval=300000, key="data_refresh")
 
 
-# ---- Auto-seed + live update system ----
+# ---- Live ingestion pipeline ─────────────────────────────────────────────
 @st.cache_resource
-def _ensure_db():
+def _start_pipeline():
     """
-    On first run (empty DB), populate with live data from Open Food Facts
-    and Open Prices APIs — no static seed data, all real live calls.
-    Only runs once per app lifecycle.
+    Start the background ingestion scheduler — runs exactly once per
+    Streamlit Cloud app instance (st.cache_resource guarantees this).
+
+    Schedule:
+      • Every hour   — fetch latest products from Open Food Facts,
+                       store new size snapshots, run shrinkflation detector
+      • Every day    — deep-scan all 543 verified cases via OFF API,
+                       cross-reference prices with Open Prices API,
+                       run full detection pass
+
+    On a brand-new (empty) database, also fires both jobs immediately so
+    the dashboard has real data within a few minutes of first deploy.
     """
     init_db()
     session = get_session()
-    if session.query(Product).count() == 0:
-        session.close()
-        try:
-            from scraper.product_scanner import run_full_scan
-            run_full_scan(batch_size=150, scan_recent=True)
-        except Exception as e:
-            # Fallback: if live scan fails (API down), seed from verified cases
-            import streamlit as _st
-            _st.warning(f"Live scan failed ({e}). Loading verified baseline data.")
-            from main import cmd_seed
-            cmd_seed()
-    else:
-        session.close()
+    is_empty = session.query(Product).count() == 0
+    session.close()
 
-
-@st.cache_data(ttl=3600)  # Run live update at most once per hour
-def _run_live_update():
-    """
-    Fetch fresh data from Open Food Facts API.
-    Cached for 1 hour so it doesn't spam the API.
-    Returns update stats + timestamp.
-    """
     try:
-        from scraper.live_tracker import run_live_update
-        result = run_live_update(max_categories=5)
-        return result
+        from ingestion.pipeline import start_scheduler
+        # run_immediately=True boots both jobs right now if DB is empty
+        start_scheduler(run_immediately=is_empty)
     except Exception as e:
-        return {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+        # Scheduler failure must not crash the dashboard
+        import streamlit as _st
+        _st.warning(f"Background pipeline could not start: {e}")
 
-_ensure_db()
 
-# Run live update (cached — at most once per hour)
-live_update_result = _run_live_update()
+_start_pipeline()
 
 # ---- Chart config (mobile-friendly) ----
 CHART_LAYOUT = dict(
