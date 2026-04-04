@@ -376,6 +376,15 @@ def _load_real_historical_data():
 _init_and_load()
 
 
+# ---- Track whether this is the very first page render ────────────────────
+@st.cache_resource
+def _get_app_state():
+    """Mutable dict persists across reruns — tracks first load."""
+    return {"first_load_done": False}
+
+_app_state = _get_app_state()
+
+
 # ---- Live scan on every refresh (OFF + Kroger) ──────────────────────────
 @st.cache_data(ttl=55)
 def _run_live_scan():
@@ -407,8 +416,10 @@ def _run_live_scan():
         from scraper.kroger import scrape_kroger
         matched, kr_snaps = scrape_kroger()
         stats["kroger_snapshots"] = kr_snaps
+        print(f"[Kroger] Done: {matched} matched, {kr_snaps} snapshots")
     except Exception as e:
         stats["kroger_error"] = str(e)
+        print(f"[Kroger] Error: {e}")
 
     # Run shrinkflation detector
     try:
@@ -421,7 +432,18 @@ def _run_live_scan():
     return stats
 
 
-_scan_result = _run_live_scan()
+# On first page load: show historical data INSTANTLY (skip slow API scan)
+# On subsequent 60s refreshes: run live scan normally
+if not _app_state["first_load_done"]:
+    _app_state["first_load_done"] = True
+    _scan_result = {
+        "new_products": 0, "new_snapshots": 0, "kroger_snapshots": 0,
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+        "note": "First load — live scan starts on next refresh",
+    }
+    print("[Startup] Skipping live scan on first load for fast startup")
+else:
+    _scan_result = _run_live_scan()
 
 # ---- Chart config (mobile-friendly) ----
 CHART_LAYOUT = dict(
@@ -563,17 +585,21 @@ _new_p = _scan_result.get("new_products", 0)
 _new_s = _scan_result.get("new_snapshots", 0)
 _kr_s = _scan_result.get("kroger_snapshots", 0)
 
-_update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
-_parts = []
-if _new_p or _new_s:
-    _parts.append(f"+{_new_p} products, +{_new_s} snapshots from Open Food Facts")
-if _scan_result.get("off_error"):
-    _parts.append(f"OFF error: {_scan_result['off_error'][:60]}")
-if _kr_s:
-    _parts.append(f"+{_kr_s} prices from Kroger")
-if _scan_result.get("kroger_error"):
-    _parts.append(f"Kroger: {_scan_result['kroger_error'][:80]}")
-_update_detail = "Live scan: " + (" | ".join(_parts) if _parts else "scan complete, no new data this tick")
+if _scan_result.get("note"):
+    _update_badge = '<span class="update-status update-stale">WARMING UP — live scan in 60s</span>'
+    _update_detail = "Loaded historical data. Live API scanning begins on next auto-refresh."
+else:
+    _update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
+    _parts = []
+    if _new_p or _new_s:
+        _parts.append(f"+{_new_p} products, +{_new_s} snapshots from Open Food Facts")
+    if _scan_result.get("off_error"):
+        _parts.append(f"OFF: {_scan_result['off_error'][:60]}")
+    if _kr_s:
+        _parts.append(f"+{_kr_s} prices from Kroger")
+    if _scan_result.get("kroger_error"):
+        _parts.append(f"Kroger: {_scan_result['kroger_error'][:80]}")
+    _update_detail = "Live scan: " + (" | ".join(_parts) if _parts else "scan complete, no new data this tick")
 
 st.markdown(f"""
 <div class="main-header">
