@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 # ---- Open Food Facts API ----
 OFF_SEARCH_URL = "https://world.openfoodfacts.org/api/v2/search"
 
+# Required by OFF API — anonymous requests without User-Agent get 503
+OFF_HEADERS = {
+    "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector)"
+}
+
 # Categories + search terms to check for size changes
 TRACKED_CATEGORIES = [
     "chips", "cereal", "ice-cream", "yogurt", "cookies",
@@ -51,9 +56,10 @@ def fetch_live_products(category, page_size=50):
                 "fields": "product_name,brands,quantity,product_quantity,"
                           "product_quantity_unit,code,image_url,last_modified_t",
                 "page_size": page_size,
-                "sort_by": "last_modified_t",  # most recently updated first
+                "sort_by": "last_modified_t",
                 "json": 1,
             },
+            headers=OFF_HEADERS,
             timeout=15,
         )
         resp.raise_for_status()
