@@ -3,10 +3,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///shrinkflation.db")
-KROGER_CLIENT_ID = os.getenv("KROGER_CLIENT_ID", "")
-KROGER_CLIENT_SECRET = os.getenv("KROGER_CLIENT_SECRET", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Try Streamlit secrets first (for Streamlit Cloud), fall back to env vars
+def _get_secret(key, default=""):
+    try:
+        import streamlit as st
+        return st.secrets.get(key, os.getenv(key, default))
+    except Exception:
+        return os.getenv(key, default)
+
+DATABASE_URL = _get_secret("DATABASE_URL", "sqlite:///shrinkflation.db")
+KROGER_CLIENT_ID = _get_secret("KROGER_CLIENT_ID")
+KROGER_CLIENT_SECRET = _get_secret("KROGER_CLIENT_SECRET")
+OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
 
 # Open Food Facts
 OFF_BASE_URL = "https://world.openfoodfacts.org/api/v2/search"

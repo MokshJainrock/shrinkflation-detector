@@ -376,22 +376,41 @@ def _load_real_historical_data():
 _init_and_load()
 
 
-# ---- Live scan on every refresh (adds NEW products from OFF API) ────────
+# ---- Live scan on every refresh (OFF + Kroger) ──────────────────────────
 @st.cache_data(ttl=55)
 def _run_live_scan():
     """
-    Fetch NEW products from Open Food Facts API on every page refresh.
-    Cached 55s so each 60s auto-refresh triggers a fresh API call.
-    These products get ADDED to the existing real data.
+    Fetch NEW products on every page refresh (cached 55s → fresh scan each 60s).
+
+    Two live sources:
+      1. Open Food Facts API — product sizes, barcodes (free, no key)
+      2. Kroger API — real US retail prices (free developer account)
+
+    Products get ADDED to the existing real data in the DB.
     """
     from scraper.live_tracker import run_live_update
     from analysis.detector import run_detection
 
-    try:
-        stats = run_live_update(max_categories=2)
-    except Exception as e:
-        return {"error": str(e), "new_products": 0, "new_snapshots": 0}
+    stats = {"new_products": 0, "new_snapshots": 0, "kroger_snapshots": 0}
 
+    # Source 1: Open Food Facts (sizes + barcodes)
+    try:
+        off_stats = run_live_update(max_categories=2)
+        stats["new_products"] = off_stats.get("new_products", 0)
+        stats["new_snapshots"] = off_stats.get("new_snapshots", 0)
+        stats["size_changes_detected"] = off_stats.get("size_changes_detected", 0)
+    except Exception as e:
+        stats["off_error"] = str(e)
+
+    # Source 2: Kroger (real retail prices)
+    try:
+        from scraper.kroger import scrape_kroger
+        matched, kr_snaps = scrape_kroger()
+        stats["kroger_snapshots"] = kr_snaps
+    except Exception as e:
+        stats["kroger_error"] = str(e)
+
+    # Run shrinkflation detector
     try:
         new_flags = run_detection()
         stats["new_flags"] = new_flags
@@ -542,13 +561,15 @@ total_flags = len(filtered)
 _now_utc = datetime.now(timezone.utc)
 _new_p = _scan_result.get("new_products", 0)
 _new_s = _scan_result.get("new_snapshots", 0)
-_scan_err = _scan_result.get("error")
+_kr_s = _scan_result.get("kroger_snapshots", 0)
 
 _update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
-if _scan_err:
-    _update_detail = f"Live scan error (will retry): {_scan_err}"
-else:
-    _update_detail = f"Live scan: +{_new_p} new products, +{_new_s} snapshots added from Open Food Facts"
+_parts = []
+if _new_p or _new_s:
+    _parts.append(f"+{_new_p} products, +{_new_s} snapshots from Open Food Facts")
+if _kr_s:
+    _parts.append(f"+{_kr_s} prices from Kroger")
+_update_detail = "Live scan: " + (" | ".join(_parts) if _parts else "scan complete, no new data this tick")
 
 st.markdown(f"""
 <div class="main-header">
@@ -558,6 +579,7 @@ st.markdown(f"""
     <p style="margin-top:4px; font-size:0.8rem; color:#64748b">{_update_detail}</p>
     <p style="margin-top:6px">
         <span class="source-badge">Open Food Facts API</span>
+        <span class="source-badge">Kroger API</span>
         <span class="source-badge">BLS / Consumer Reports</span>
         <span class="source-badge">Live + Historical</span>
     </p>
