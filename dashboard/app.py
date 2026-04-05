@@ -696,31 +696,36 @@ if not filtered.empty:
 
         st.divider()
 
-        # Row 2: Weekly trend
-        st.subheader("Weekly Detection Trend")
-        trend = get_trend_data(12)
-        if trend and not isinstance(trend, dict):
-            trend_df = pd.DataFrame(trend)
-            trend_df["week"] = pd.to_datetime(trend_df["week"])
+        # Row 2: Detection timeline — computed from filtered data
+        st.subheader("Detection Timeline")
+        if not filtered.empty and "detected_at" in filtered.columns:
+            _trend_df = filtered.copy()
+            _trend_df["detected_at"] = pd.to_datetime(_trend_df["detected_at"], utc=True)
+            # Group by month (more meaningful for multi-year historical data)
+            _trend_df["period"] = _trend_df["detected_at"].dt.to_period("M").dt.to_timestamp()
+            _monthly = _trend_df.groupby("period").size().reset_index(name="detections")
+            _monthly = _monthly.sort_values("period")
+
             fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(
-                x=trend_df["week"], y=trend_df["new_flags"],
-                mode="lines+markers", fill="tozeroy",
-                line=dict(color="#e74c3c", width=3),
-                marker=dict(size=8, color="#c0392b"),
-                name="New Flags",
-                hovertemplate="Week of %{x|%b %d}<br>New Flags: %{y}<extra></extra>",
+            fig2.add_trace(go.Bar(
+                x=_monthly["period"], y=_monthly["detections"],
+                marker_color="#e74c3c",
+                name="Detections",
+                hovertemplate="<b>%{x|%b %Y}</b><br>%{y} cases detected<extra></extra>",
             ))
-            if len(trend_df) >= 3:
-                trend_df["ma"] = trend_df["new_flags"].rolling(3, min_periods=1).mean()
+            # Add trend line if enough data
+            if len(_monthly) >= 3:
+                _monthly["ma"] = _monthly["detections"].rolling(3, min_periods=1).mean()
                 fig2.add_trace(go.Scatter(
-                    x=trend_df["week"], y=trend_df["ma"],
+                    x=_monthly["period"], y=_monthly["ma"],
                     mode="lines", line=dict(color="#3498db", width=2, dash="dash"),
-                    name="3-Week Avg",
+                    name="3-Month Avg",
                 ))
-            fig2.update_layout(**CHART_LAYOUT, height=350, yaxis_title="New Flags",
-                               legend=dict(orientation="h", yanchor="bottom", y=1.02))
+            fig2.update_layout(**CHART_LAYOUT, height=350, yaxis_title="Cases Detected",
+                               xaxis_title="", legend=dict(orientation="h", yanchor="bottom", y=1.02))
             st.plotly_chart(fig2, width="stretch", config=CHART_CONFIG)
+        else:
+            st.info("No detection data available yet for timeline.")
 
         st.divider()
 
@@ -728,18 +733,20 @@ if not filtered.empty:
         col_left, col_right = st.columns(2)
 
         with col_left:
-            st.subheader("Shrinkflation Rate by Category")
-            cats = get_category_breakdown()
-            if cats and not isinstance(cats, dict):
-                cat_df = pd.DataFrame(cats)
-                fig3 = px.bar(
-                    cat_df.sort_values("shrinkflation_rate_pct", ascending=True),
-                    x="shrinkflation_rate_pct", y="category", orientation="h",
-                    color="shrinkflation_rate_pct", color_continuous_scale="YlOrRd",
-                    labels={"shrinkflation_rate_pct": "Shrinkflation Rate (%)", "category": ""},
-                    text="shrinkflation_rate_pct",
+            st.subheader("Cases by Category")
+            if not filtered.empty and "category" in filtered.columns:
+                _cat_counts = (
+                    filtered.groupby("category").size()
+                    .reset_index(name="cases")
+                    .sort_values("cases", ascending=True)
                 )
-                fig3.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+                fig3 = px.bar(
+                    _cat_counts, x="cases", y="category", orientation="h",
+                    color="cases", color_continuous_scale="YlOrRd",
+                    labels={"cases": "Shrinkflation Cases", "category": ""},
+                    text="cases",
+                )
+                fig3.update_traces(texttemplate="%{text}", textposition="outside")
                 fig3.update_layout(**CHART_LAYOUT, height=400)
                 st.plotly_chart(fig3, width="stretch", config=CHART_CONFIG)
 
