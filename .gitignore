@@ -7,3 +7,4 @@ venv/
 .DS_Store
 *.db
 .streamlit/secrets.toml
+.data_version

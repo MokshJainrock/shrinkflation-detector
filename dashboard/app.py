@@ -254,41 +254,51 @@ st_autorefresh(interval=60000, key="data_refresh")
 # STARTUP: Real historical data + live scanner
 # =====================================================================
 
-DATA_VERSION = 2  # Bump this to force a fresh DB reload with cleaned data
+DATA_VERSION = 3  # Bump this to force a fresh DB reload with cleaned data
 
 @st.cache_resource
 def _init_and_load(_version=DATA_VERSION):
     """
     Runs ONCE per app lifecycle:
     1. Create tables
-    2. If DB has old inflated data or is empty → wipe and reload clean data
+    2. Wipe and reload if data version changed or DB has stale data
     """
     from db.models import Base
+    import json, os
+
     init_db()
     engine = get_engine()
+
+    # Track data version in a file to detect stale DB across restarts
+    version_file = os.path.join(os.path.dirname(__file__), ".data_version")
+    current_version = None
+    try:
+        with open(version_file) as f:
+            current_version = int(f.read().strip())
+    except Exception:
+        pass
+
     session = get_session()
     count = session.query(Product).count()
+    session.close()
 
-    # Check for old inflated data: the old code created exactly 9 copies
-    # per product (one per retailer). If we see those retailer names, wipe and reload.
     needs_reload = False
     if count == 0:
         needs_reload = True
-    elif count > 0:
-        # Check if old retailer-duplicated data exists
-        duped = session.query(Product).filter(Product.retailer.in_(
-            ["walmart", "kroger", "target", "costco", "safeway", "publix", "h-e-b", "meijer", "albertsons"]
-        )).count()
-        if duped > 100:  # Old inflated data present
-            needs_reload = True
-            print(f"[DB] Found {duped} retailer-duplicated entries — wiping stale data")
-
-    session.close()
+        print("[DB] Empty database — loading clean data")
+    elif current_version != DATA_VERSION:
+        needs_reload = True
+        print(f"[DB] Data version changed ({current_version} → {DATA_VERSION}) — reloading clean data")
 
     if needs_reload:
         Base.metadata.drop_all(engine)
         Base.metadata.create_all(engine)
         _load_real_historical_data()
+        try:
+            with open(version_file, "w") as f:
+                f.write(str(DATA_VERSION))
+        except Exception:
+            pass
 
 
 def _load_real_historical_data():
@@ -304,7 +314,7 @@ def _load_real_historical_data():
     NOT fake. NOT random. NOT simulated. NOT artificially multiplied across retailers.
     One entry per real documented case.
     """
-    from data.verified_cases import VERIFIED_CASES, STABLE_PRODUCTS, RETAILERS
+    from data.verified_cases import VERIFIED_CASES, STABLE_PRODUCTS
 
     session = get_session()
     if session.query(Product).count() > 0:

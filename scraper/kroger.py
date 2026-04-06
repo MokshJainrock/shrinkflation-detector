@@ -104,7 +104,7 @@ def match_product_name(kroger_name: str, db_products: list[Product]) -> Product 
 
     for product in db_products:
         ratio = SequenceMatcher(None, kroger_name.lower(), product.name.lower()).ratio()
-        if ratio > best_ratio and ratio > 0.5:
+        if ratio > best_ratio and ratio > 0.65:  # 0.65 threshold to avoid false matches
             best_ratio = ratio
             best_match = product
 
