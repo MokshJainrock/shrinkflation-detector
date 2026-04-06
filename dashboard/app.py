@@ -374,7 +374,7 @@ SEVERITY_COLORS = {"HIGH": "#e74c3c", "MEDIUM": "#f39c12", "LOW": "#f1c40f"}
 # DATA LOADING
 # =====================================================================
 @st.cache_data(ttl=60)
-def load_flags():
+def load_flags(_refresh_token=None):
     engine = get_engine()
     try:
         return pd.read_sql(
@@ -390,7 +390,7 @@ def load_flags():
 
 
 @st.cache_data(ttl=60)
-def load_all_products():
+def load_all_products(_refresh_token=None):
     engine = get_engine()
     try:
         return pd.read_sql(
@@ -402,7 +402,7 @@ def load_all_products():
 
 
 @st.cache_data(ttl=60)
-def load_latest_insight():
+def load_latest_insight(_refresh_token=None):
     try:
         session = get_session()
         insight = (
@@ -420,8 +420,9 @@ def load_latest_insight():
 
 
 # ---- Load data ----
-flags_df = load_flags()
-products_df = load_all_products()
+_data_refresh_token = _scan_result.get("scanned_at")
+flags_df = load_flags(_data_refresh_token)
+products_df = load_all_products(_data_refresh_token)
 
 # =====================================================================
 # SIDEBAR — Filters (touch-friendly)
