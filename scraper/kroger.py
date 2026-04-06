@@ -75,10 +75,18 @@ def get_kroger_token() -> str | None:
         return None
 
 
+# Default Kroger store — needed for price data (prices are location-specific)
+KROGER_LOCATION_ID = "01400513"  # Kroger On the Rhine, Cincinnati OH
+
+
 def search_kroger_products(query: str, token: str, limit: int = 10) -> list[dict]:
-    """Search Kroger product catalog."""
+    """Search Kroger product catalog with location for price data."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    params = {"filter.term": query, "filter.limit": limit}
+    params = {
+        "filter.term": query,
+        "filter.limit": limit,
+        "filter.locationId": KROGER_LOCATION_ID,
+    }
 
     try:
         resp = requests.get(KROGER_SEARCH_URL, headers=headers, params=params, timeout=8)
