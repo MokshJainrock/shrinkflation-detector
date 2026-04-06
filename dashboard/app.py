@@ -28,6 +28,8 @@ from agent.tools import (
     get_trend_data, get_product_history,
 )
 
+LOAD_ERRORS = {}
+
 # =====================================================================
 # PAGE CONFIG
 # =====================================================================
@@ -346,6 +348,23 @@ def _run_live_scan():
     except Exception:
         stats["new_flags"] = 0
 
+    try:
+        session = get_session()
+        stats["db_product_count"] = (
+            session.query(Product)
+            .filter(Product.retailer == "openfoodfacts")
+            .count()
+        )
+        stats["db_flag_count"] = (
+            session.query(ShrinkflationFlag)
+            .join(Product, Product.id == ShrinkflationFlag.product_id)
+            .filter(Product.retailer == "openfoodfacts")
+            .count()
+        )
+        session.close()
+    except Exception as e:
+        stats["db_error"] = str(e)
+
     stats["scanned_at"] = datetime.now(timezone.utc).isoformat()
     return stats
 
@@ -373,31 +392,83 @@ SEVERITY_COLORS = {"HIGH": "#e74c3c", "MEDIUM": "#f39c12", "LOW": "#f1c40f"}
 # =====================================================================
 # DATA LOADING
 # =====================================================================
+def _record_load_error(name: str, error: Exception | None):
+    if error is None:
+        LOAD_ERRORS.pop(name, None)
+    else:
+        LOAD_ERRORS[name] = str(error)
+
+
 @st.cache_data(ttl=60)
 def load_flags(_refresh_token=None):
-    engine = get_engine()
     try:
-        return pd.read_sql(
-            """SELECT f.*, p.name as product, p.brand, p.category
-               FROM shrinkflation_flags f
-               JOIN products p ON p.id = f.product_id
-               WHERE p.retailer = 'openfoodfacts'
-               ORDER BY f.detected_at DESC""",
-            engine,
+        session = get_session()
+        rows = (
+            session.query(ShrinkflationFlag, Product)
+            .join(Product, Product.id == ShrinkflationFlag.product_id)
+            .filter(Product.retailer == "openfoodfacts")
+            .order_by(ShrinkflationFlag.detected_at.desc())
+            .all()
         )
-    except Exception:
+        data = [
+            {
+                "id": flag.id,
+                "product_id": flag.product_id,
+                "old_size": flag.old_size,
+                "new_size": flag.new_size,
+                "old_price": flag.old_price,
+                "new_price": flag.new_price,
+                "real_price_increase_pct": flag.real_price_increase_pct,
+                "severity": flag.severity,
+                "size_unit": flag.size_unit,
+                "evidence_type": flag.evidence_type,
+                "detected_at": flag.detected_at,
+                "retailer": flag.retailer,
+                "product": product.name,
+                "brand": product.brand,
+                "category": product.category,
+            }
+            for flag, product in rows
+        ]
+        session.close()
+        _record_load_error("flags", None)
+        return pd.DataFrame(data)
+    except Exception as e:
+        _record_load_error("flags", e)
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=60)
 def load_all_products(_refresh_token=None):
-    engine = get_engine()
     try:
-        return pd.read_sql(
-            "SELECT * FROM products WHERE retailer = 'openfoodfacts' ORDER BY last_seen_at DESC",
-            engine,
+        session = get_session()
+        rows = (
+            session.query(Product)
+            .filter(Product.retailer == "openfoodfacts")
+            .order_by(Product.last_seen_at.desc())
+            .all()
         )
-    except Exception:
+        data = [
+            {
+                "id": product.id,
+                "name": product.name,
+                "brand": product.brand,
+                "category": product.category,
+                "barcode": product.barcode,
+                "retailer": product.retailer,
+                "source_key": product.source_key,
+                "image_url": product.image_url,
+                "created_at": product.created_at,
+                "last_seen_at": product.last_seen_at,
+                "source_last_modified_at": product.source_last_modified_at,
+            }
+            for product in rows
+        ]
+        session.close()
+        _record_load_error("products", None)
+        return pd.DataFrame(data)
+    except Exception as e:
+        _record_load_error("products", e)
         return pd.DataFrame()
 
 
@@ -430,6 +501,9 @@ products_df = load_all_products(_data_refresh_token)
 with st.sidebar:
     st.markdown("## Filters")
 
+    _sidebar_product_count = len(products_df) or _scan_result.get("db_product_count", 0)
+    _sidebar_flag_count = len(flags_df) or _scan_result.get("db_flag_count", 0)
+
     all_categories = sorted(flags_df["category"].dropna().unique()) if not flags_df.empty else []
     selected_category = st.selectbox("Category", ["All Categories"] + all_categories)
 
@@ -461,8 +535,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Quick Stats**")
     col_s1, col_s2 = st.columns(2)
-    col_s1.metric("Products", f"{len(products_df):,}")
-    col_s2.metric("Flags", f"{len(flags_df):,}")
+    col_s1.metric("Products", f"{_sidebar_product_count:,}")
+    col_s2.metric("Flags", f"{_sidebar_flag_count:,}")
 
     st.markdown("---")
     st.caption("Live data from Open Food Facts, refreshed every 60 seconds. Kroger prices use exact UPC matches only.")
@@ -488,8 +562,8 @@ if not filtered.empty:
 # =====================================================================
 # HEADER
 # =====================================================================
-total_prods = len(products_df)
-total_flags = len(filtered)
+total_prods = len(products_df) or _scan_result.get("db_product_count", 0)
+total_flags = len(filtered) or _scan_result.get("db_flag_count", 0)
 
 # Determine update status from the scan that just ran
 _now_utc = datetime.now(timezone.utc)
@@ -532,8 +606,8 @@ st.markdown(f"""
 # METRICS ROW — computed from filtered data, responds to all filters
 # =====================================================================
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Products Tracked", f"{len(products_df):,}")
-m2.metric("Shrinks Detected", f"{len(filtered):,}")
+m1.metric("Products Tracked", f"{total_prods:,}")
+m2.metric("Shrinks Detected", f"{total_flags:,}")
 
 if not filtered.empty and "real_price_increase_pct" in filtered.columns:
     _avg_inc = filtered["real_price_increase_pct"].mean()
@@ -554,6 +628,12 @@ else:
     m5.metric("Worst Brand", "N/A")
 
 st.markdown("")
+
+if LOAD_ERRORS:
+    for name, error in LOAD_ERRORS.items():
+        st.warning(f"Dashboard {name} load warning: {error}")
+if _scan_result.get("db_error"):
+    st.warning(f"Dashboard database count warning: {_scan_result['db_error']}")
 
 # =====================================================================
 # MAIN TABBED LAYOUT
