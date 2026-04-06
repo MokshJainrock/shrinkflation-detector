@@ -82,7 +82,7 @@ def cmd_dashboard():
 
 
 def cmd_reseed():
-    """Wipe DB then run a fresh live ingestion cycle from Open Food Facts + Open Prices."""
+    """Wipe DB then run a fresh live ingestion cycle from Open Food Facts + Kroger."""
     from db.models import Base, get_engine, init_db
     engine = get_engine()
     Base.metadata.drop_all(engine)
@@ -97,7 +97,7 @@ def cmd_seed():
 
     Data sources (all real, no fabricated data):
     - Open Food Facts API  — real product sizes and barcodes (openfoodfacts.org)
-    - Open Prices API      — crowd-sourced real retail prices from grocery receipts
+    - Kroger API           — exact UPC price enrichment when credentials are configured
     """
     from ingestion.pipeline import run_once
     run_once()

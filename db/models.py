@@ -9,6 +9,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from config.settings import DATABASE_URL
 
 Base = declarative_base()
+_ENGINE = None
+_SESSION_FACTORY = None
 
 
 class Product(Base):
@@ -20,14 +22,17 @@ class Product(Base):
     category = Column(String(255))
     barcode = Column(String(100), nullable=True)
     retailer = Column(String(100), default="openfoodfacts")
+    source_key = Column(String(255), nullable=False)
     image_url = Column(String(1000), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    source_last_modified_at = Column(DateTime, nullable=True)
 
     snapshots = relationship("ProductSnapshot", back_populates="product", order_by="ProductSnapshot.scraped_at")
     flags = relationship("ShrinkflationFlag", back_populates="product")
 
     __table_args__ = (
-        UniqueConstraint("name", "brand", "retailer", name="uq_product_name_brand_retailer"),
+        UniqueConstraint("source_key", "retailer", name="uq_product_source_key_retailer"),
     )
 
 
@@ -40,6 +45,9 @@ class ProductSnapshot(Base):
     size_unit = Column(String(50), nullable=True)
     price = Column(Float, nullable=True)
     price_per_unit = Column(Float, nullable=True)
+    snapshot_type = Column(String(20), nullable=False, default="size")
+    source_name = Column(String(100), nullable=False, default="openfoodfacts")
+    source_updated_at = Column(DateTime, nullable=True)
     scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     product = relationship("Product", back_populates="snapshots")
@@ -56,6 +64,8 @@ class ShrinkflationFlag(Base):
     new_price = Column(Float)
     real_price_increase_pct = Column(Float)
     severity = Column(String(10))  # HIGH, MEDIUM, LOW
+    size_unit = Column(String(50), nullable=True)
+    evidence_type = Column(String(20), nullable=True)
     detected_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     retailer = Column(String(100))
 
@@ -73,16 +83,22 @@ class AgentInsight(Base):
 
 
 def get_engine():
+    global _ENGINE
+    if _ENGINE is not None:
+        return _ENGINE
+
     connect_args = {}
     if DATABASE_URL.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
-    return create_engine(DATABASE_URL, connect_args=connect_args)
+    _ENGINE = create_engine(DATABASE_URL, connect_args=connect_args)
+    return _ENGINE
 
 
 def get_session():
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    return Session()
+    global _SESSION_FACTORY
+    if _SESSION_FACTORY is None:
+        _SESSION_FACTORY = sessionmaker(bind=get_engine(), expire_on_commit=False)
+    return _SESSION_FACTORY()
 
 
 def init_db():
