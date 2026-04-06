@@ -1,7 +1,6 @@
 """
 Streamlit dashboard — Shrinkflation Detector
-Data based on documented shrinkflation cases from BLS, Consumer Reports,
-mouseprint.org, FTC filings, and media investigations.
+Live-only view of source-backed shrinkflation observations.
 
 Run with: streamlit run dashboard/app.py
 """
@@ -251,20 +250,20 @@ st_autorefresh(interval=60000, key="data_refresh")
 
 
 # =====================================================================
-# STARTUP: Real historical data + live scanner
+# STARTUP: Live-only database + live scanner
 # =====================================================================
 
-DATA_VERSION = 3  # Bump this to force a fresh DB reload with cleaned data
+DATA_VERSION = 4  # Bump this to invalidate old seeded/static databases
 
 @st.cache_resource
 def _init_and_load(_version=DATA_VERSION):
     """
     Runs ONCE per app lifecycle:
     1. Create tables
-    2. Wipe and reload if data version changed or DB has stale data
+    2. Reset old seeded / pre-live-only databases when schema version changes
     """
     from db.models import Base
-    import json, os
+    import os
 
     init_db()
     engine = get_engine()
@@ -279,138 +278,29 @@ def _init_and_load(_version=DATA_VERSION):
         pass
 
     session = get_session()
-    count = session.query(Product).count()
+    total_products = session.query(Product).count()
+    live_products = session.query(Product).filter(Product.retailer == "openfoodfacts").count()
     session.close()
 
-    needs_reload = False
-    if count == 0:
-        needs_reload = True
-        print("[DB] Empty database — loading clean data")
-    elif current_version != DATA_VERSION:
-        needs_reload = True
-        print(f"[DB] Data version changed ({current_version} → {DATA_VERSION}) — reloading clean data")
+    reset_reason = None
+    if current_version != DATA_VERSION:
+        reset_reason = f"Data version changed ({current_version} -> {DATA_VERSION})"
+    elif total_products and live_products != total_products:
+        reset_reason = "Removed legacy non-live products from database"
 
-    if needs_reload:
+    if reset_reason:
+        print(f"[DB] {reset_reason} — rebuilding live-only database")
         Base.metadata.drop_all(engine)
         Base.metadata.create_all(engine)
-        _load_real_historical_data()
-        try:
-            with open(version_file, "w") as f:
-                f.write(str(DATA_VERSION))
-        except Exception:
-            pass
 
-
-def _load_real_historical_data():
-    """
-    Load 531 real documented shrinkflation cases into the DB.
-
-    Every single entry is a real product that really shrank:
-    - Doritos: 9.75 oz → 9.25 oz (2022, documented by Consumer Reports)
-    - Gatorade: 32 oz → 28 oz (2022, documented by BLS)
-    - Haagen-Dazs: 16 oz → 14 oz (2022, documented by mouseprint.org)
-    ... 528 more real cases from public investigations
-
-    NOT fake. NOT random. NOT simulated. NOT artificially multiplied across retailers.
-    One entry per real documented case.
-    """
-    from data.verified_cases import VERIFIED_CASES, STABLE_PRODUCTS
-
-    session = get_session()
-    if session.query(Product).count() > 0:
-        session.close()
-        return
-
-    now = datetime.now(timezone.utc)
-    products_created = []
-    seen = set()
-
-    # Real shrinkflation cases — ONE entry per product (no artificial retailer duplication)
-    for case in VERIFIED_CASES:
-        brand, name, category, old_size, new_size, unit, old_price, new_price, year, source = case
-        key = (brand, name)
-        if key in seen:
-            continue
-        seen.add(key)
-        p = Product(name=f"{brand} {name}", brand=brand, category=category,
-                    barcode=None, retailer=source)
-        session.add(p)
-        session.flush()
-        products_created.append({
-            "product": p, "old_size": old_size, "new_size": new_size,
-            "unit": unit, "old_price": old_price, "new_price": new_price,
-            "shrinks": True, "year": year,
-        })
-
-    # Stable baselines (products that didn't shrink — for comparison)
-    for item in STABLE_PRODUCTS:
-        brand, name, category, size, unit, price = item
-        key = (brand, name)
-        if key in seen:
-            continue
-        seen.add(key)
-        p = Product(name=f"{brand} {name}", brand=brand, category=category,
-                    barcode=None, retailer="documented")
-        session.add(p)
-        session.flush()
-        products_created.append({
-            "product": p, "old_size": size, "new_size": size,
-            "unit": unit, "old_price": price, "new_price": price,
-            "shrinks": False, "year": 2024,
-        })
-
-    session.commit()
-
-    # Create before/after snapshots with real documented dates
-    for item in products_created:
-        p = item["product"]
-        yr = item["year"]
-        old_ppu = round(item["old_price"] / item["old_size"], 4) if item["old_size"] > 0 else None
-        new_ppu = round(item["new_price"] / item["new_size"], 4) if item["new_size"] > 0 else None
-        session.add(ProductSnapshot(
-            product_id=p.id, size_value=item["old_size"], size_unit=item["unit"],
-            price=item["old_price"], price_per_unit=old_ppu,
-            scraped_at=datetime(yr, 1, 15, tzinfo=timezone.utc),
-        ))
-        session.add(ProductSnapshot(
-            product_id=p.id, size_value=item["new_size"], size_unit=item["unit"],
-            price=item["new_price"], price_per_unit=new_ppu,
-            scraped_at=datetime(yr, 7, 15, tzinfo=timezone.utc),
-        ))
-    session.commit()
-
-    # Create shrinkflation flags for products that shrank
-    for item in products_created:
-        if not item["shrinks"]:
-            continue
-        p = item["product"]
-        old_ppu = item["old_price"] / item["old_size"]
-        new_ppu = item["new_price"] / item["new_size"]
-        real_increase = ((new_ppu - old_ppu) / old_ppu) * 100
-        severity = "HIGH" if real_increase > 10 else ("MEDIUM" if real_increase > 5 else "LOW")
-        session.add(ShrinkflationFlag(
-            product_id=p.id,
-            old_size=item["old_size"], new_size=item["new_size"],
-            old_price=item["old_price"], new_price=item["new_price"],
-            real_price_increase_pct=round(real_increase, 2),
-            severity=severity,
-            detected_at=datetime(item["year"], 6, 1, tzinfo=timezone.utc),
-            retailer=p.retailer,
-        ))
-    session.commit()
-    session.close()
+    try:
+        with open(version_file, "w") as f:
+            f.write(str(DATA_VERSION))
+    except Exception:
+        pass
 
 
 _init_and_load()
-
-
-# ---- Track whether this is the very first page render ────────────────────
-@st.cache_resource
-def _get_app_state():
-    """Mutable dict persists across reruns — tracks first load."""
-    return {"first_load_done": False}
-
-_app_state = _get_app_state()
 
 
 # ---- Live scan on every refresh (OFF + Kroger) ──────────────────────────
@@ -435,7 +325,7 @@ def _run_live_scan():
         off_stats = run_live_update(max_categories=2)
         stats["new_products"] = off_stats.get("new_products", 0)
         stats["new_snapshots"] = off_stats.get("new_snapshots", 0)
-        stats["size_changes_detected"] = off_stats.get("size_changes_detected", 0)
+        stats["size_changes_observed"] = off_stats.get("size_changes_observed", 0)
     except Exception as e:
         stats["off_error"] = str(e)
 
@@ -460,18 +350,7 @@ def _run_live_scan():
     return stats
 
 
-# On first page load: show historical data INSTANTLY (skip slow API scan)
-# On subsequent 60s refreshes: run live scan normally
-if not _app_state["first_load_done"]:
-    _app_state["first_load_done"] = True
-    _scan_result = {
-        "new_products": 0, "new_snapshots": 0, "kroger_snapshots": 0,
-        "scanned_at": datetime.now(timezone.utc).isoformat(),
-        "note": "First load — live scan starts on next refresh",
-    }
-    print("[Startup] Skipping live scan on first load for fast startup")
-else:
-    _scan_result = _run_live_scan()
+_scan_result = _run_live_scan()
 
 # ---- Chart config (mobile-friendly) ----
 CHART_LAYOUT = dict(
@@ -502,6 +381,7 @@ def load_flags():
             """SELECT f.*, p.name as product, p.brand, p.category
                FROM shrinkflation_flags f
                JOIN products p ON p.id = f.product_id
+               WHERE p.retailer = 'openfoodfacts'
                ORDER BY f.detected_at DESC""",
             engine,
         )
@@ -513,7 +393,10 @@ def load_flags():
 def load_all_products():
     engine = get_engine()
     try:
-        return pd.read_sql("SELECT * FROM products", engine)
+        return pd.read_sql(
+            "SELECT * FROM products WHERE retailer = 'openfoodfacts' ORDER BY last_seen_at DESC",
+            engine,
+        )
     except Exception:
         return pd.DataFrame()
 
@@ -581,7 +464,7 @@ with st.sidebar:
     col_s2.metric("Flags", f"{len(flags_df):,}")
 
     st.markdown("---")
-    st.caption("Live data from Open Food Facts API. Refreshes every 60s.")
+    st.caption("Live data from Open Food Facts, refreshed every 60 seconds. Kroger prices use exact UPC matches only.")
 
 # ---- Apply filters ----
 filtered = flags_df.copy()
@@ -613,21 +496,21 @@ _new_p = _scan_result.get("new_products", 0)
 _new_s = _scan_result.get("new_snapshots", 0)
 _kr_s = _scan_result.get("kroger_snapshots", 0)
 
-if _scan_result.get("note"):
-    _update_badge = '<span class="update-status update-stale">WARMING UP — live scan in 60s</span>'
-    _update_detail = "Loaded historical data. Live API scanning begins on next auto-refresh."
-else:
-    _update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
-    _parts = []
-    if _new_p or _new_s:
-        _parts.append(f"+{_new_p} products, +{_new_s} snapshots from Open Food Facts")
-    if _scan_result.get("off_error"):
-        _parts.append(f"OFF: {_scan_result['off_error'][:60]}")
-    if _kr_s:
-        _parts.append(f"+{_kr_s} prices from Kroger")
-    if _scan_result.get("kroger_error"):
-        _parts.append(f"Kroger: {_scan_result['kroger_error'][:80]}")
-    _update_detail = "Live scan: " + (" | ".join(_parts) if _parts else "scan complete, no new data this tick")
+_update_badge = '<span class="update-status update-live">LIVE — scanning every 60s</span>'
+_parts = []
+if _new_p or _new_s:
+    _parts.append(f"+{_new_p} products, +{_new_s} OFF snapshots")
+if _scan_result.get("size_changes_observed"):
+    _parts.append(f"{_scan_result['size_changes_observed']} live size changes observed")
+if _kr_s:
+    _parts.append(f"+{_kr_s} Kroger price snapshots")
+if _scan_result.get("new_flags"):
+    _parts.append(f"{_scan_result['new_flags']} new shrink flags")
+if _scan_result.get("off_error"):
+    _parts.append(f"OFF: {_scan_result['off_error'][:60]}")
+if _scan_result.get("kroger_error"):
+    _parts.append(f"Kroger: {_scan_result['kroger_error'][:80]}")
+_update_detail = "Live scan: " + (" | ".join(_parts) if _parts else "scan complete, no new live observations this tick")
 
 st.markdown(f"""
 <div class="main-header">
@@ -638,8 +521,8 @@ st.markdown(f"""
     <p style="margin-top:6px">
         <span class="source-badge">Open Food Facts API</span>
         <span class="source-badge">Kroger API</span>
-        <span class="source-badge">BLS / Consumer Reports</span>
-        <span class="source-badge">Live + Historical</span>
+        <span class="source-badge">Live Snapshots Only</span>
+        <span class="source-badge">Exact UPC Prices</span>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -729,7 +612,7 @@ if not filtered.empty:
         if not filtered.empty and "detected_at" in filtered.columns:
             _trend_df = filtered.copy()
             _trend_df["detected_at"] = pd.to_datetime(_trend_df["detected_at"], utc=True)
-            # Group by month (more meaningful for multi-year historical data)
+            # Group by month for a readable long-running live timeline
             _trend_df["period"] = _trend_df["detected_at"].dt.to_period("M").dt.to_timestamp()
             _monthly = _trend_df.groupby("period").size().reset_index(name="detections")
             _monthly = _monthly.sort_values("period")
@@ -1296,9 +1179,9 @@ st.markdown("---")
 st.markdown(f"""
 <div class="footer">
     <strong>Shrinkflation Detector</strong><br>
-    Historical data: 543 real documented cases from BLS, Consumer Reports, mouseprint.org, FTC, media.<br>
-    Live data: <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API scanned every 60 seconds — new products added continuously.<br>
-    All data is real. No fabricated, simulated, or random records.<br>
+    Live product data comes from the <a href="https://world.openfoodfacts.org/" target="_blank">Open Food Facts</a> API and is rescanned every 60 seconds.<br>
+    Kroger price data is optional and only attached when an exact UPC match is returned by the Kroger API.<br>
+    No static shrinkflation seed data is loaded into the dashboard database.<br>
     Built with Python, Streamlit, SQLAlchemy, and Plotly
 </div>
 """, unsafe_allow_html=True)

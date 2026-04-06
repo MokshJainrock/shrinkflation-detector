@@ -1,19 +1,23 @@
 """
-Kroger API scraper — pulls price data and matches to existing products.
-Requires free Kroger developer account: https://developer.kroger.com
+Kroger API scraper — pulls price data for existing OFF products.
+
+For accuracy, we only enrich products that have a barcode and can be looked up
+via Kroger's exact product details endpoint. We intentionally skip fuzzy
+name/category matching because it can attach the wrong price to a product.
 """
 
 import time
 import logging
 from base64 import b64encode
-from difflib import SequenceMatcher
+from datetime import datetime, timezone
 
 import requests
 
 from config.settings import (
-    KROGER_TOKEN_URL, KROGER_SEARCH_URL, OFF_CATEGORIES,
+    KROGER_LOCATION_ID, KROGER_TOKEN_URL, KROGER_SEARCH_URL,
 )
 from db.models import Product, ProductSnapshot, get_session
+from scraper.source_utils import ensure_utc, normalize_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -75,135 +79,163 @@ def get_kroger_token() -> str | None:
         return None
 
 
-# Default Kroger store — needed for price data (prices are location-specific)
-KROGER_LOCATION_ID = "01400513"  # Kroger On the Rhine, Cincinnati OH
+def fetch_kroger_product_details(identifier: str, token: str) -> dict | None:
+    """Fetch one Kroger product by exact UPC or productId."""
+    if not identifier:
+        return None
 
-
-def search_kroger_products(query: str, token: str, limit: int = 10) -> list[dict]:
-    """Search Kroger product catalog with location for price data."""
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    params = {
-        "filter.term": query,
-        "filter.limit": limit,
-        "filter.locationId": KROGER_LOCATION_ID,
-    }
+    params = {"filter.locationId": KROGER_LOCATION_ID}
+    url = f"{KROGER_SEARCH_URL.rstrip('/')}/{identifier}"
 
     try:
-        resp = requests.get(KROGER_SEARCH_URL, headers=headers, params=params, timeout=8)
+        resp = requests.get(url, headers=headers, params=params, timeout=8)
+        if resp.status_code == 404:
+            return None
         resp.raise_for_status()
-        return resp.json().get("data", [])
+        return resp.json().get("data")
     except requests.RequestException as e:
-        logger.warning(f"Kroger search failed for '{query}': {e}")
-        return []
+        logger.warning("Kroger product details failed for '%s': %s", identifier, e)
+        return None
 
 
-def match_product_name(kroger_name: str, db_products: list[Product]) -> Product | None:
-    """Find best matching product from DB using fuzzy string matching."""
-    best_match = None
-    best_ratio = 0.0
-
-    for product in db_products:
-        ratio = SequenceMatcher(None, kroger_name.lower(), product.name.lower()).ratio()
-        if ratio > best_ratio and ratio > 0.65:  # 0.65 threshold to avoid false matches
-            best_ratio = ratio
-            best_match = product
-
-    return best_match
+def _flatten_items(items) -> list[dict]:
+    flattened = []
+    for item in items or []:
+        if isinstance(item, dict):
+            flattened.append(item)
+        elif isinstance(item, list):
+            flattened.extend(subitem for subitem in item if isinstance(subitem, dict))
+    return flattened
 
 
-def extract_price(kroger_item: dict) -> tuple[float | None, float | None]:
-    """Extract regular price and price_per_unit from Kroger product data."""
+def is_exact_barcode_match(kroger_product: dict | None, barcode: str | None) -> bool:
+    if not kroger_product or not barcode:
+        return False
+
+    expected = normalize_identifier(barcode)
+    if not expected:
+        return False
+
+    observed = set()
+    observed.update(normalize_identifier(kroger_product.get("upc")))
+    observed.update(normalize_identifier(kroger_product.get("productId")))
+    for item in _flatten_items(kroger_product.get("items")):
+        observed.update(normalize_identifier(item.get("upc")))
+
+    return bool(expected.intersection(observed))
+
+
+def extract_price(kroger_product: dict, current_size_value: float | None) -> tuple[float | None, float | None]:
+    """Extract a regular or promo price from Kroger product details."""
     price = None
     price_per_unit = None
 
-    items = kroger_item.get("items", [])
-    if items:
-        item = items[0]
-        price_info = item.get("price", {})
-        price = price_info.get("regular")
-        if not price:
-            price = price_info.get("promo")
+    items = _flatten_items(kroger_product.get("items"))
+    for item in items:
+        price_info = item.get("price") or {}
+        price = price_info.get("regular") or price_info.get("promo")
+        if price:
+            break
 
-        size_info = item.get("size", "")
-        if price and size_info:
-            # Attempt to compute price per unit
-            import re
-            match = re.search(r"([\d.]+)", str(size_info))
-            if match:
-                try:
-                    size_val = float(match.group(1))
-                    if size_val > 0:
-                        price_per_unit = round(price / size_val, 4)
-                except (ValueError, ZeroDivisionError):
-                    pass
+    if price and current_size_value and current_size_value > 0:
+        try:
+            price_per_unit = round(float(price) / float(current_size_value), 4)
+        except (TypeError, ValueError, ZeroDivisionError):
+            price_per_unit = None
 
     return price, price_per_unit
 
 
-def scrape_kroger(max_categories=3):
-    """Main Kroger scraper — searches for products and adds price snapshots.
-    Only checks a few categories per tick to stay within time limits."""
+def _pick_products_for_this_tick(products: list[Product], max_products: int) -> list[Product]:
+    if not products or max_products <= 0:
+        return []
+    if len(products) <= max_products:
+        return products
+
+    minute_bucket = int(time.time() // 60)
+    start = minute_bucket % len(products)
+    picked = []
+    for index in range(max_products):
+        picked.append(products[(start + index) % len(products)])
+    return picked
+
+
+def scrape_kroger(max_products=5):
+    """Attach Kroger prices only when the UPC maps to an exact Kroger product."""
     token = get_kroger_token()
     if not token:
         print("Kroger: No valid credentials, skipping.")
         return 0, 0
 
     session = get_session()
-    total_matched = 0
+    total_checked = 0
     total_snapshots = 0
 
-    # Rotate through categories each tick (like OFF scanner does)
-    from datetime import datetime, timezone
-    now_utc = datetime.now(timezone.utc)
-    minute_offset = (now_utc.hour * 60 + now_utc.minute) % len(OFF_CATEGORIES)
-    categories_to_check = []
-    for i in range(min(max_categories, len(OFF_CATEGORIES))):
-        idx = (minute_offset + i) % len(OFF_CATEGORIES)
-        categories_to_check.append(OFF_CATEGORIES[idx])
+    candidates = (
+        session.query(Product)
+        .filter(Product.retailer == "openfoodfacts", Product.barcode.isnot(None))
+        .all()
+    )
+    candidates.sort(
+        key=lambda product: ensure_utc(product.last_seen_at or product.created_at)
+        or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    selected_products = _pick_products_for_this_tick(candidates, max_products)
 
-    print(f"Scraping Kroger — {len(categories_to_check)} of {len(OFF_CATEGORIES)} categories this tick")
+    print(f"Scraping Kroger — checking {len(selected_products)} exact UPC matches this tick")
 
-    for category in categories_to_check:
-        print(f"  Searching Kroger for: {category}...")
+    for product in selected_products:
+        total_checked += 1
+        kroger_product = fetch_kroger_product_details(product.barcode, token)
+        if not is_exact_barcode_match(kroger_product, product.barcode):
+            continue
 
-        # Get existing products in this category from our DB
-        db_products = (
-            session.query(Product)
-            .filter_by(category=category)
-            .all()
+        latest_size_snapshot = (
+            session.query(ProductSnapshot)
+            .filter_by(product_id=product.id, snapshot_type="size")
+            .order_by(ProductSnapshot.scraped_at.desc())
+            .first()
         )
+        current_size_value = latest_size_snapshot.size_value if latest_size_snapshot else None
+        current_size_unit = latest_size_snapshot.size_unit if latest_size_snapshot else None
+        price, price_per_unit = extract_price(kroger_product, current_size_value)
+        if price is None:
+            continue
 
-        kroger_results = search_kroger_products(category, token)
-        print(f"  Got {len(kroger_results)} Kroger results")
+        latest_price_snapshot = (
+            session.query(ProductSnapshot)
+            .filter_by(product_id=product.id, snapshot_type="price", source_name="kroger")
+            .order_by(ProductSnapshot.scraped_at.desc())
+            .first()
+        )
+        if (
+            latest_price_snapshot is not None
+            and latest_price_snapshot.price == price
+            and latest_price_snapshot.price_per_unit == price_per_unit
+            and latest_price_snapshot.size_value == current_size_value
+            and latest_price_snapshot.size_unit == current_size_unit
+        ):
+            continue
 
-        for kr_product in kroger_results:
-            kr_name = kr_product.get("description", "")
-            if not kr_name:
-                continue
+        session.add(ProductSnapshot(
+            product_id=product.id,
+            size_value=current_size_value,
+            size_unit=current_size_unit,
+            price=price,
+            price_per_unit=price_per_unit,
+            snapshot_type="price",
+            source_name="kroger",
+        ))
+        total_snapshots += 1
+        time.sleep(0.25)
 
-            # Try to match to existing product
-            matched = match_product_name(kr_name, db_products)
-
-            if matched:
-                price, price_per_unit = extract_price(kr_product)
-                if price:
-                    snapshot = ProductSnapshot(
-                        product_id=matched.id,
-                        size_value=matched.snapshots[-1].size_value if matched.snapshots else None,
-                        size_unit=matched.snapshots[-1].size_unit if matched.snapshots else None,
-                        price=price,
-                        price_per_unit=price_per_unit,
-                    )
-                    session.add(snapshot)
-                    total_snapshots += 1
-                    total_matched += 1
-
-        session.commit()
-        time.sleep(0.5)  # Rate limit
+    session.commit()
 
     session.close()
-    print(f"\nKroger scrape complete: {total_matched} matched, {total_snapshots} price snapshots")
-    return total_matched, total_snapshots
+    print(f"\nKroger scrape complete: {total_checked} checked, {total_snapshots} exact price snapshots")
+    return total_checked, total_snapshots
 
 
 if __name__ == "__main__":
