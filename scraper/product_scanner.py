@@ -28,8 +28,9 @@ from db.models import Product, ProductSnapshot, ShrinkflationFlag, get_session, 
 
 logger = logging.getLogger(__name__)
 
-OFF_SEARCH_URL = "https://world.openfoodfacts.org/api/v2/search"
-OFF_PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+# .net mirror works from Streamlit Cloud (.org blocks cloud IPs with 503)
+OFF_SEARCH_URL = "https://world.openfoodfacts.net/api/v2/search"
+OFF_PRODUCT_URL = "https://world.openfoodfacts.net/api/v2/product/{barcode}.json"
 OPEN_PRICES_URL = "https://prices.openfoodfacts.org/api/v1/prices"
 
 # Fields to request from OFF API
