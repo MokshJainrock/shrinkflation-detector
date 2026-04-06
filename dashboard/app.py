@@ -1170,7 +1170,76 @@ if not filtered.empty:
             )
 
 else:
-    st.info("Scanner is running — products from Open Food Facts will appear as they're fetched. Dashboard refreshes every 60 seconds.")
+    if not products_df.empty:
+        st.info(
+            "Live products are loading correctly. Shrinkflation flags appear only after the "
+            "same product is observed again later at a smaller size."
+        )
+
+        preview_tab, category_tab = st.tabs(["Live Products", "Category Mix"])
+
+        with preview_tab:
+            st.subheader("Recently Collected Products")
+            preview = products_df.copy()
+            if "last_seen_at" in preview.columns:
+                preview["last_seen_at"] = pd.to_datetime(preview["last_seen_at"], utc=True, errors="coerce")
+                preview["last_seen_at"] = preview["last_seen_at"].dt.strftime("%Y-%m-%d %H:%M UTC")
+
+            preview_columns = [
+                "name",
+                "brand",
+                "category",
+                "barcode",
+                "last_seen_at",
+            ]
+            existing_preview_columns = [col for col in preview_columns if col in preview.columns]
+            st.dataframe(
+                preview[existing_preview_columns].head(100),
+                width="stretch",
+                height=520,
+                hide_index=True,
+            )
+            st.caption(
+                f"Showing {min(len(preview), 100):,} of {len(preview):,} live products currently stored."
+            )
+
+        with category_tab:
+            st.subheader("Products by Category")
+            if "category" in products_df.columns:
+                category_counts = (
+                    products_df["category"]
+                    .fillna("Unknown")
+                    .value_counts()
+                    .reset_index()
+                )
+                category_counts.columns = ["category", "products"]
+                fig_live_categories = px.bar(
+                    category_counts.head(15),
+                    x="products",
+                    y="category",
+                    orientation="h",
+                    color="products",
+                    color_continuous_scale="Blues",
+                    labels={"products": "Products Collected", "category": ""},
+                    text="products",
+                )
+                fig_live_categories.update_traces(textposition="outside")
+                fig_live_categories.update_layout(**CHART_LAYOUT, height=420)
+                fig_live_categories.update_yaxes(categoryorder="total ascending")
+                st.plotly_chart(fig_live_categories, width="stretch", config=CHART_CONFIG)
+            else:
+                st.caption("Category data will appear here as products are scanned.")
+
+        if _scan_result.get("off_error"):
+            st.warning(f"Open Food Facts scan warning: {_scan_result['off_error']}")
+        if _scan_result.get("kroger_error"):
+            st.warning(f"Kroger scan warning: {_scan_result['kroger_error']}")
+    else:
+        st.info("Scanner is running — products from Open Food Facts will appear as they're fetched. Dashboard refreshes every 60 seconds.")
+        if _scan_result.get("off_error"):
+            st.warning(f"Open Food Facts scan warning: {_scan_result['off_error']}")
+        if _scan_result.get("kroger_error"):
+            st.warning(f"Kroger scan warning: {_scan_result['kroger_error']}")
 
 # =====================================================================
 # FOOTER
