@@ -144,9 +144,9 @@ VERIFIED_CASES = [
     ("Simply", "Lemonade", "beverages", 52.0, 46.0, "fl oz", 4.49, 4.79, 2023, "r/shrinkflation"),
     ("Ocean Spray", "Cranberry Juice Cocktail", "beverages", 64.0, 60.0, "fl oz", 4.49, 4.79, 2023, "mouseprint.org"),
     ("Snapple", "Peach Tea", "beverages", 64.0, 52.0, "fl oz", 4.49, 4.49, 2022, "r/shrinkflation"),
-    ("Arizona", "Green Tea (bottle)", "beverages", 128.0, 96.0, "fl oz", 3.99, 3.99, 2023, "r/shrinkflation"),
+    # Removed: Arizona Green Tea — Arizona is known for NOT shrinking products
     ("V8", "Splash Berry Blend", "beverages", 64.0, 46.0, "fl oz", 3.99, 3.99, 2022, "mouseprint.org"),
-    ("Hawaiian Punch", "Fruit Juicy Red", "beverages", 128.0, 96.0, "fl oz", 3.49, 3.49, 2023, "r/shrinkflation"),
+    # Removed: Hawaiian Punch 128→96oz — unverified 25% reduction, too extreme
     ("Country Time", "Lemonade Mix", "beverages", 19.0, 16.0, "oz", 4.49, 4.79, 2022, "r/shrinkflation"),
     ("Crystal Light", "Lemonade Mix", "beverages", 3.2, 2.5, "oz", 3.49, 3.69, 2023, "r/shrinkflation"),
 
@@ -581,7 +581,7 @@ VERIFIED_CASES = [
     ("Blue Buffalo", "Life Protection Adult", "pet food", 15.0, 13.0, "lb", 32.99, 34.99, 2023, "r/shrinkflation"),
     ("Meow Mix", "Original Choice", "pet food", 16.0, 13.5, "lb", 13.99, 14.99, 2023, "r/shrinkflation"),
     ("Rachael Ray Nutrish", "Real Chicken & Veggies", "pet food", 14.0, 12.0, "lb", 19.99, 21.99, 2023, "r/shrinkflation"),
-    ("Fancy Feast", "Classic Pate (cans)", "pet food", 3.0, 2.8, "oz", 0.99, 1.09, 2023, "r/shrinkflation"),
+    # Removed: Fancy Feast 3→2.8oz — can sizes are standardized, not well-documented
     ("Milk-Bone", "Original Dog Biscuits", "pet food", 24.0, 22.0, "oz", 5.49, 5.99, 2023, "r/shrinkflation"),
     ("Greenies", "Original Dental Dog Treats", "pet food", 12.0, 10.0, "oz", 12.99, 13.99, 2023, "r/shrinkflation"),
     ("Temptations", "Classic Cat Treats Chicken", "pet food", 6.3, 5.5, "oz", 4.49, 4.79, 2023, "r/shrinkflation"),
@@ -618,7 +618,7 @@ VERIFIED_CASES = [
     ("Swiffer", "WetJet Solution Refill", "cleaning", 42.2, 38.0, "fl oz", 7.99, 8.49, 2023, "r/shrinkflation"),
     ("Febreze", "Air Freshener Spray", "cleaning", 8.8, 7.5, "oz", 5.49, 5.79, 2023, "r/shrinkflation"),
     ("OxiClean", "Versatile Stain Remover", "cleaning", 5.0, 3.5, "lb", 12.99, 13.49, 2023, "r/shrinkflation"),
-    ("Scrub Daddy", "Original Sponge (3-pack)", "cleaning", 3.0, 3.0, "count", 9.49, 10.99, 2023, "r/shrinkflation"),
+    # Scrub Daddy removed — count stays 3→3, that's inflation not shrinkflation
     ("Pledge", "Multi-Surface Cleaner Spray", "cleaning", 14.2, 12.5, "oz", 5.49, 5.99, 2023, "r/shrinkflation"),
     ("Ajax", "Ultra Dish Liquid", "cleaning", 28.0, 22.0, "fl oz", 2.99, 2.99, 2022, "r/shrinkflation"),
 
@@ -656,15 +656,11 @@ VERIFIED_CASES = [
     # ================================================================
     # DRINKS — soda, energy, water
     # ================================================================
-    ("Coca-Cola", "Coca-Cola Classic (20oz bottle)", "drinks", 20.0, 16.9, "fl oz", 2.19, 2.29, 2023, "r/shrinkflation"),
-    ("Pepsi", "Pepsi Cola (20oz bottle)", "drinks", 20.0, 16.9, "fl oz", 2.19, 2.29, 2023, "r/shrinkflation"),
-    ("Dr Pepper", "Original (20oz bottle)", "drinks", 20.0, 16.9, "fl oz", 2.19, 2.29, 2023, "r/shrinkflation"),
-    ("Mountain Dew", "Original (20oz bottle)", "drinks", 20.0, 16.9, "fl oz", 2.19, 2.29, 2023, "r/shrinkflation"),
-    ("Sprite", "Lemon-Lime (20oz bottle)", "drinks", 20.0, 16.9, "fl oz", 2.19, 2.29, 2023, "r/shrinkflation"),
-    ("Monster", "Energy Original", "drinks", 16.0, 15.0, "fl oz", 2.99, 3.29, 2023, "r/shrinkflation"),
-    ("Red Bull", "Energy Drink", "drinks", 12.0, 8.4, "fl oz", 3.49, 2.99, 2022, "r/shrinkflation"),
+    # Removed: Coca-Cola/Pepsi/Dr Pepper/Sprite/Mountain Dew 20→16.9oz — new SKU alongside existing, not replacement
+    # Removed: Monster Energy 16→15oz — not well-documented
+    # Removed: Red Bull 12→8.4oz — FAKE, 8.4oz has always been the standard size
+    # Removed: Celsius 16→12oz — two different SKUs confused
     ("Body Armor", "SuperDrink Strawberry Banana", "drinks", 28.0, 24.0, "fl oz", 2.49, 2.49, 2023, "r/shrinkflation"),
-    ("Celsius", "Sparkling Orange", "drinks", 16.0, 12.0, "fl oz", 2.49, 2.49, 2023, "r/shrinkflation"),
     ("Poland Spring", "Sport Cap (6-pack)", "drinks", 23.7, 20.0, "fl oz each", 4.99, 4.99, 2022, "r/shrinkflation"),
     ("Nestle Pure Life", "Purified Water (24-pack)", "drinks", 16.9, 16.0, "fl oz each", 3.99, 3.99, 2022, "r/shrinkflation"),
     ("Kool-Aid", "Jammers Grape (10-pack)", "drinks", 6.0, 5.0, "fl oz each", 3.49, 3.49, 2023, "r/shrinkflation"),
