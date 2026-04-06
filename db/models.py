@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column, Integer, String, Float, Text, DateTime, ForeignKey, JSON,
-    create_engine, UniqueConstraint,
+    create_engine, event, UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -89,8 +89,17 @@ def get_engine():
 
     connect_args = {}
     if DATABASE_URL.startswith("sqlite"):
-        connect_args = {"check_same_thread": False}
+        connect_args = {"check_same_thread": False, "timeout": 30}
     _ENGINE = create_engine(DATABASE_URL, connect_args=connect_args)
+
+    if DATABASE_URL.startswith("sqlite"):
+        @event.listens_for(_ENGINE, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA busy_timeout=30000;")
+            cursor.close()
+
     return _ENGINE
 
 
