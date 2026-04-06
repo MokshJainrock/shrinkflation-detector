@@ -17,10 +17,12 @@ from db.models import Product, ProductSnapshot, ShrinkflationFlag, get_session, 
 logger = logging.getLogger(__name__)
 
 # ---- Open Food Facts API ----
-OFF_SEARCH_URL = "https://world.openfoodfacts.org/api/v2/search"
+# .net mirror works from Streamlit Cloud (.org blocks cloud IPs with 503)
+OFF_SEARCH_URLS = [
+    "https://world.openfoodfacts.net/api/v2/search",   # Mirror — works from cloud
+    "https://world.openfoodfacts.org/api/v2/search",   # Main — fallback
+]
 
-# Required by OFF API — anonymous requests without User-Agent get 503
-# Include full browser-like headers to avoid 503 on cloud platforms
 OFF_HEADERS = {
     "User-Agent": "ShrinkflationDetector/1.0 (https://github.com/MokshJainrock/shrinkflation-detector; contact@shrinkflation.app)",
     "Accept": "application/json",
@@ -52,26 +54,27 @@ def parse_quantity(quantity_str):
 
 
 def fetch_live_products(category, page_size=50):
-    """Fetch latest products from Open Food Facts for a category."""
-    try:
-        resp = requests.get(
-            OFF_SEARCH_URL,
-            params={
-                "categories_tags_en": category,
-                "fields": "product_name,brands,quantity,product_quantity,"
-                          "product_quantity_unit,code,image_url,last_modified_t",
-                "page_size": page_size,
-                "sort_by": "last_modified_t",
-                "json": 1,
-            },
-            headers=OFF_HEADERS,
-            timeout=8,  # Fast timeout — don't block app startup
-        )
-        resp.raise_for_status()
-        return resp.json().get("products", [])
-    except Exception as e:
-        print(f"Failed to fetch {category}: {e}")
-        return []
+    """Fetch latest products from Open Food Facts for a category.
+    Tries .net mirror first (works from cloud), falls back to .org."""
+    params = {
+        "categories_tags_en": category,
+        "fields": "product_name,brands,quantity,product_quantity,"
+                  "product_quantity_unit,code,image_url,last_modified_t",
+        "page_size": page_size,
+        "sort_by": "last_modified_t",
+        "json": 1,
+    }
+    for url in OFF_SEARCH_URLS:
+        try:
+            resp = requests.get(url, params=params, headers=OFF_HEADERS, timeout=8)
+            resp.raise_for_status()
+            products = resp.json().get("products", [])
+            print(f"[OFF] Fetched {len(products)} products for '{category}' from {url.split('/')[2]}")
+            return products
+        except Exception as e:
+            print(f"[OFF] {url.split('/')[2]} failed for '{category}': {e}")
+            continue
+    return []
 
 
 def run_live_update(max_categories=5):
