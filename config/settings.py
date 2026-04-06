@@ -1,93 +1,52 @@
-import importlib.util
-import logging
 import os
-
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
+# Try Streamlit secrets first (for Streamlit Cloud), fall back to env vars
 def _get_secret(key, default=""):
-    """Prefer Streamlit secrets, then fall back to environment variables."""
+    # Method 1: Streamlit secrets (st.secrets["KEY"])
     try:
         import streamlit as st
         if hasattr(st, "secrets"):
+            # Try dict-style access first (most reliable on Streamlit Cloud)
             try:
                 val = st.secrets[key]
                 if val:
-                    logger.info("Secret '%s' loaded from Streamlit secrets", key)
+                    logger.info(f"Secret '{key}' loaded from Streamlit secrets")
                     return val
-            except Exception:
+            except (KeyError, Exception):
                 pass
+            # Try .get() as fallback
             try:
                 val = st.secrets.get(key)
                 if val:
-                    logger.info("Secret '%s' loaded from Streamlit secrets (.get)", key)
+                    logger.info(f"Secret '{key}' loaded from Streamlit secrets (.get)")
                     return val
             except Exception:
                 pass
     except Exception:
         pass
 
+    # Method 2: Environment variable
     val = os.getenv(key, default)
     if val and val != default:
-        logger.info("Secret '%s' loaded from environment variable", key)
+        logger.info(f"Secret '{key}' loaded from environment variable")
     return val
 
-
-def _normalize_database_url(raw_url: str) -> str:
-    url = (raw_url or "").strip()
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://"):]
-
-    # The repo's previous placeholder pointed at a local Postgres instance,
-    # but the project does not install a Postgres driver by default.
-    if not url or url == "postgresql://localhost/shrinkflation_db":
-        return "sqlite:///shrinkflation.db"
-
-    if url.startswith("postgresql"):
-        has_driver = (
-            importlib.util.find_spec("psycopg") is not None
-            or importlib.util.find_spec("psycopg2") is not None
-        )
-        if not has_driver:
-            logger.warning(
-                "PostgreSQL URL configured but no PostgreSQL driver is installed; "
-                "falling back to sqlite:///shrinkflation.db"
-            )
-            return "sqlite:///shrinkflation.db"
-
-    return url
-
-
-DATABASE_URL = _normalize_database_url(_get_secret("DATABASE_URL", "sqlite:///shrinkflation.db"))
+DATABASE_URL = _get_secret("DATABASE_URL", "sqlite:///shrinkflation.db")
 KROGER_CLIENT_ID = _get_secret("KROGER_CLIENT_ID")
 KROGER_CLIENT_SECRET = _get_secret("KROGER_CLIENT_SECRET")
-KROGER_LOCATION_ID = _get_secret("KROGER_LOCATION_ID", "01400513")
 OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
 
 # Open Food Facts
 OFF_BASE_URL = "https://world.openfoodfacts.org/api/v2/search"
 OFF_CATEGORIES = [
-    "chips",
-    "cereal",
-    "ice cream",
-    "yogurt",
-    "cookies",
-    "crackers",
-    "pasta",
-    "candy",
-    "bread",
-    "coffee",
-    "ketchup",
-    "mayonnaise",
-    "peanut butter",
-    "juice",
-    "frozen meals",
-    "detergent",
-    "soap",
+    "chips", "cereal", "juice", "detergent", "cookies", "yogurt", "coffee",
+    "pasta", "soap", "crackers", "bread", "mayo", "ketchup", "ice cream", "cheese",
 ]
 
 # Kroger
@@ -96,9 +55,9 @@ KROGER_SEARCH_URL = "https://api.kroger.com/v1/products"
 
 # Detection thresholds
 SIZE_DECREASE_THRESHOLD_PCT = 2.0
-HIGH_SEVERITY_PCT = 10.0
-MEDIUM_SEVERITY_PCT = 5.0
-PRICE_MATCH_WINDOW_DAYS = 7
+HIGH_SEVERITY_PCT = 5.0
+MEDIUM_SEVERITY_PCT = 2.0
+LOOKBACK_DAYS = 30
 
 # Agent
 AGENT_MODEL = "gpt-4o"

@@ -55,10 +55,10 @@ def ingest_tick():
         stats = run_live_update(max_categories=2)
         new_p = stats.get("new_products", 0)
         new_s = stats.get("new_snapshots", 0)
-        changes = stats.get("size_changes_observed", 0)
+        changes = stats.get("size_changes_detected", 0)
         logger.info(
             f"[pipeline] tick #{tick}: {new_p} new products, "
-            f"{new_s} snapshots, {changes} live size changes"
+            f"{new_s} snapshots, {changes} size changes"
         )
     except Exception as exc:
         logger.error(f"[pipeline] live_update failed: {exc}", exc_info=True)
