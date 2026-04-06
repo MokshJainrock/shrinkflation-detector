@@ -227,9 +227,8 @@ def scan_verified_products(session, verified_cases, batch_size=200):
 
         products_scanned += 1
 
-        # Check or create product record for each major retailer
-        # The documented shrinkflation happened at manufacturer level → affects all retailers
-        for retailer in ["walmart", "kroger", "target", "costco", "safeway"]:
+        # One entry per product — no artificial retailer duplication
+        for retailer in ["openfoodfacts"]:
             existing_product = (
                 session.query(Product)
                 .filter_by(name=live["product_name"] or f"{brand} {name}",

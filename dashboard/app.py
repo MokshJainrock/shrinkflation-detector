@@ -274,15 +274,16 @@ def _init_and_load():
 
 def _load_real_historical_data():
     """
-    Load 543 real documented shrinkflation cases into the DB.
+    Load 531 real documented shrinkflation cases into the DB.
 
     Every single entry is a real product that really shrank:
     - Doritos: 9.75 oz → 9.25 oz (2022, documented by Consumer Reports)
     - Gatorade: 32 oz → 28 oz (2022, documented by BLS)
     - Haagen-Dazs: 16 oz → 14 oz (2022, documented by mouseprint.org)
-    ... 540 more real cases from public investigations
+    ... 528 more real cases from public investigations
 
-    NOT fake. NOT random. NOT simulated.
+    NOT fake. NOT random. NOT simulated. NOT artificially multiplied across retailers.
+    One entry per real documented case.
     """
     from data.verified_cases import VERIFIED_CASES, STABLE_PRODUCTS, RETAILERS
 
@@ -295,41 +296,39 @@ def _load_real_historical_data():
     products_created = []
     seen = set()
 
-    # Real shrinkflation cases
+    # Real shrinkflation cases — ONE entry per product (no artificial retailer duplication)
     for case in VERIFIED_CASES:
         brand, name, category, old_size, new_size, unit, old_price, new_price, year, source = case
-        for retailer in RETAILERS:
-            key = (brand, name, retailer)
-            if key in seen:
-                continue
-            seen.add(key)
-            p = Product(name=f"{brand} {name}", brand=brand, category=category,
-                        barcode=None, retailer=retailer)
-            session.add(p)
-            session.flush()
-            products_created.append({
-                "product": p, "old_size": old_size, "new_size": new_size,
-                "unit": unit, "old_price": old_price, "new_price": new_price,
-                "shrinks": True, "year": year,
-            })
+        key = (brand, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        p = Product(name=f"{brand} {name}", brand=brand, category=category,
+                    barcode=None, retailer=source)
+        session.add(p)
+        session.flush()
+        products_created.append({
+            "product": p, "old_size": old_size, "new_size": new_size,
+            "unit": unit, "old_price": old_price, "new_price": new_price,
+            "shrinks": True, "year": year,
+        })
 
     # Stable baselines (products that didn't shrink — for comparison)
     for item in STABLE_PRODUCTS:
         brand, name, category, size, unit, price = item
-        for retailer in RETAILERS:
-            key = (brand, name, retailer)
-            if key in seen:
-                continue
-            seen.add(key)
-            p = Product(name=f"{brand} {name}", brand=brand, category=category,
-                        barcode=None, retailer=retailer)
-            session.add(p)
-            session.flush()
-            products_created.append({
-                "product": p, "old_size": size, "new_size": size,
-                "unit": unit, "old_price": price, "new_price": price,
-                "shrinks": False, "year": 2024,
-            })
+        key = (brand, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        p = Product(name=f"{brand} {name}", brand=brand, category=category,
+                    barcode=None, retailer="documented")
+        session.add(p)
+        session.flush()
+        products_created.append({
+            "product": p, "old_size": size, "new_size": size,
+            "unit": unit, "old_price": price, "new_price": price,
+            "shrinks": False, "year": 2024,
+        })
 
     session.commit()
 
