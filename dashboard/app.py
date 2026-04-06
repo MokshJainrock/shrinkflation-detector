@@ -254,21 +254,40 @@ st_autorefresh(interval=60000, key="data_refresh")
 # STARTUP: Real historical data + live scanner
 # =====================================================================
 
+DATA_VERSION = 2  # Bump this to force a fresh DB reload with cleaned data
+
 @st.cache_resource
-def _init_and_load():
+def _init_and_load(_version=DATA_VERSION):
     """
     Runs ONCE per app lifecycle:
     1. Create tables
-    2. If DB is empty → load real documented shrinkflation cases
-       (Doritos 9.75→9.25oz, Gatorade 32→28oz, etc. — all real, all documented)
-    3. These are FACTS from BLS / Consumer Reports / FTC — not fake data
+    2. If DB has old inflated data or is empty → wipe and reload clean data
     """
+    from db.models import Base
     init_db()
+    engine = get_engine()
     session = get_session()
     count = session.query(Product).count()
+
+    # Check for old inflated data: the old code created exactly 9 copies
+    # per product (one per retailer). If we see those retailer names, wipe and reload.
+    needs_reload = False
+    if count == 0:
+        needs_reload = True
+    elif count > 0:
+        # Check if old retailer-duplicated data exists
+        duped = session.query(Product).filter(Product.retailer.in_(
+            ["walmart", "kroger", "target", "costco", "safeway", "publix", "h-e-b", "meijer", "albertsons"]
+        )).count()
+        if duped > 100:  # Old inflated data present
+            needs_reload = True
+            print(f"[DB] Found {duped} retailer-duplicated entries — wiping stale data")
+
     session.close()
 
-    if count == 0:
+    if needs_reload:
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
         _load_real_historical_data()
 
 
