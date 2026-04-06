@@ -473,6 +473,101 @@ def load_all_products(_refresh_token=None):
 
 
 @st.cache_data(ttl=60)
+def load_inventory_summary(_refresh_token=None):
+    empty_summary = {
+        "total_products": 0,
+        "category_count": 0,
+        "brand_count": 0,
+        "barcoded_products": 0,
+        "barcode_coverage_pct": 0.0,
+        "timestamped_products": 0,
+        "source_timestamp_coverage_pct": 0.0,
+        "size_snapshot_count": 0,
+        "price_matched_products": 0,
+        "exact_price_match_pct": 0.0,
+        "top_category": "N/A",
+        "top_brand": "N/A",
+        "latest_seen_at": None,
+    }
+
+    session = None
+    try:
+        session = get_session()
+        products = (
+            session.query(Product)
+            .filter(Product.retailer == "openfoodfacts")
+            .order_by(Product.last_seen_at.desc())
+            .all()
+        )
+        snapshot_rows = (
+            session.query(ProductSnapshot.product_id, ProductSnapshot.snapshot_type, ProductSnapshot.source_name)
+            .join(Product, Product.id == ProductSnapshot.product_id)
+            .filter(Product.retailer == "openfoodfacts")
+            .all()
+        )
+        _record_load_error("inventory_summary", None)
+    except Exception as e:
+        if session is not None:
+            session.close()
+        _record_load_error("inventory_summary", e)
+        return empty_summary
+
+    session.close()
+    total_products = len(products)
+    if total_products == 0:
+        return empty_summary
+
+    categories = [
+        str(product.category).strip()
+        for product in products
+        if product.category and str(product.category).strip()
+    ]
+    brands = [
+        str(product.brand).strip()
+        for product in products
+        if product.brand and str(product.brand).strip()
+    ]
+    barcoded_products = sum(
+        1 for product in products if product.barcode and str(product.barcode).strip()
+    )
+    timestamped_products = sum(
+        1 for product in products if product.source_last_modified_at is not None
+    )
+    size_snapshot_count = sum(
+        1
+        for _product_id, snapshot_type, _source_name in snapshot_rows
+        if snapshot_type == "size"
+    )
+    price_matched_products = len({
+        product_id
+        for product_id, snapshot_type, source_name in snapshot_rows
+        if snapshot_type == "price" and source_name == "kroger"
+    })
+    top_category = pd.Series(categories).value_counts().idxmax() if categories else "N/A"
+    top_brand = pd.Series(brands).value_counts().idxmax() if brands else "N/A"
+    latest_seen_at = max(
+        (product.last_seen_at for product in products if product.last_seen_at is not None),
+        default=None,
+    )
+
+    return {
+        "total_products": total_products,
+        "category_count": len(set(categories)),
+        "brand_count": len(set(brands)),
+        "barcoded_products": barcoded_products,
+        "barcode_coverage_pct": (barcoded_products / total_products * 100) if total_products else 0.0,
+        "timestamped_products": timestamped_products,
+        "source_timestamp_coverage_pct": (timestamped_products / total_products * 100) if total_products else 0.0,
+        "size_snapshot_count": size_snapshot_count,
+        "price_matched_products": price_matched_products,
+        "exact_price_match_pct": (price_matched_products / total_products * 100) if total_products else 0.0,
+        "top_category": top_category,
+        "top_brand": top_brand,
+        "latest_seen_at": latest_seen_at,
+    }
+
+
+@st.cache_data(ttl=60)
 def load_latest_insight(_refresh_token=None):
     try:
         session = get_session()
@@ -494,6 +589,7 @@ def load_latest_insight(_refresh_token=None):
 _data_refresh_token = _scan_result.get("scanned_at")
 flags_df = load_flags(_data_refresh_token)
 products_df = load_all_products(_data_refresh_token)
+inventory_summary = load_inventory_summary(_data_refresh_token)
 
 # =====================================================================
 # SIDEBAR — Filters (touch-friendly)
@@ -504,14 +600,35 @@ with st.sidebar:
     _sidebar_product_count = len(products_df) or _scan_result.get("db_product_count", 0)
     _sidebar_flag_count = len(flags_df) or _scan_result.get("db_flag_count", 0)
 
-    all_categories = sorted(flags_df["category"].dropna().unique()) if not flags_df.empty else []
+    filter_source = products_df if not products_df.empty else flags_df
+    all_categories = (
+        sorted(
+            filter_source["category"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+            .unique()
+        )
+        if not filter_source.empty and "category" in filter_source.columns
+        else []
+    )
     selected_category = st.selectbox("Category", ["All Categories"] + all_categories)
 
-    if not flags_df.empty:
-        if selected_category != "All Categories":
-            available_brands = sorted(flags_df[flags_df["category"] == selected_category]["brand"].dropna().unique())
-        else:
-            available_brands = sorted(flags_df["brand"].dropna().unique())
+    if not filter_source.empty and "brand" in filter_source.columns:
+        brand_source = filter_source
+        if selected_category != "All Categories" and "category" in filter_source.columns:
+            brand_source = filter_source[filter_source["category"] == selected_category]
+        available_brands = sorted(
+            brand_source["brand"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+            .unique()
+        )
     else:
         available_brands = []
     selected_brand = st.selectbox("Brand", ["All Brands"] + available_brands)
@@ -542,7 +659,10 @@ with st.sidebar:
     st.caption("Live data from Open Food Facts, refreshed every 60 seconds. Kroger prices use exact UPC matches only.")
 
 # ---- Apply filters ----
+_days_map = {"30 days": 30, "90 days": 90, "1 year": 365, "2 years": 730}
 filtered = flags_df.copy()
+filtered_products = products_df.copy()
+
 if not filtered.empty:
     if selected_category != "All Categories":
         filtered = filtered[filtered["category"] == selected_category]
@@ -553,10 +673,21 @@ if not filtered.empty:
     if selected_retailer != "All Retailers" and "retailer" in filtered.columns:
         filtered = filtered[filtered["retailer"] == selected_retailer]
     if "detected_at" in filtered.columns and date_range != "All time":
-        _days_map = {"30 days": 30, "90 days": 90, "1 year": 365, "2 years": 730}
         filtered["detected_at"] = pd.to_datetime(filtered["detected_at"], utc=True)
         cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=_days_map[date_range])
         filtered = filtered[filtered["detected_at"] >= cutoff]
+
+if not filtered_products.empty:
+    if selected_category != "All Categories" and "category" in filtered_products.columns:
+        filtered_products = filtered_products[filtered_products["category"] == selected_category]
+    if selected_brand != "All Brands" and "brand" in filtered_products.columns:
+        filtered_products = filtered_products[filtered_products["brand"] == selected_brand]
+    if "last_seen_at" in filtered_products.columns and date_range != "All time":
+        filtered_products["last_seen_at"] = pd.to_datetime(
+            filtered_products["last_seen_at"], utc=True, errors="coerce"
+        )
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=_days_map[date_range])
+        filtered_products = filtered_products[filtered_products["last_seen_at"] >= cutoff]
 
 
 # =====================================================================
@@ -612,20 +743,22 @@ m2.metric("Shrinks Detected", f"{total_flags:,}")
 if not filtered.empty and "real_price_increase_pct" in filtered.columns:
     _avg_inc = filtered["real_price_increase_pct"].mean()
     m3.metric("Avg Hidden Increase", f"+{_avg_inc:.1f}%")
-else:
-    m3.metric("Avg Hidden Increase", "+0.0%")
 
-if not filtered.empty and "category" in filtered.columns:
-    _worst_cat = filtered["category"].value_counts().idxmax()
-    m4.metric("Worst Category", _worst_cat.title())
-else:
-    m4.metric("Worst Category", "N/A")
+    if "category" in filtered.columns:
+        _worst_cat = filtered["category"].value_counts().idxmax()
+        m4.metric("Worst Category", _worst_cat.title())
+    else:
+        m4.metric("Worst Category", "N/A")
 
-if not filtered.empty and "brand" in filtered.columns:
-    _worst_brand = filtered["brand"].value_counts().idxmax()
-    m5.metric("Worst Brand", _worst_brand)
+    if "brand" in filtered.columns:
+        _worst_brand = filtered["brand"].value_counts().idxmax()
+        m5.metric("Worst Brand", _worst_brand)
+    else:
+        m5.metric("Worst Brand", "N/A")
 else:
-    m5.metric("Worst Brand", "N/A")
+    m3.metric("Tracked Categories", f"{inventory_summary['category_count']:,}")
+    m4.metric("Tracked Brands", f"{inventory_summary['brand_count']:,}")
+    m5.metric("Barcode Coverage", f"{inventory_summary['barcode_coverage_pct']:.1f}%")
 
 st.markdown("")
 
@@ -1251,20 +1384,119 @@ if not filtered.empty:
             )
 
 else:
+    live_display_df = filtered_products if not filtered_products.empty else products_df
+
     if not products_df.empty:
-        st.info(
-            "Live products are loading correctly. Shrinkflation flags appear only after the "
-            "same product is observed again later at a smaller size."
+        if filtered_products.empty and (
+            selected_category != "All Categories"
+            or selected_brand != "All Brands"
+            or date_range != "All time"
+        ):
+            st.info(
+                "No live products match the current filters yet. Showing the overall tracked inventory below so "
+                "you can still review genuine source-backed data."
+            )
+        else:
+            st.info(
+                "Live products are loading correctly. Shrinkflation flags appear only after the "
+                "same product is observed again later at a smaller size."
+            )
+
+        overview_tab, preview_tab, category_tab, integrity_tab = st.tabs(
+            ["Live Overview", "Live Products", "Category Mix", "Data Integrity"]
         )
 
-        preview_tab, category_tab = st.tabs(["Live Products", "Category Mix"])
+        with overview_tab:
+            ov1, ov2, ov3, ov4 = st.columns(4)
+            ov1.metric("Live Products", f"{len(live_display_df):,}")
+            ov2.metric("Tracked Categories", f"{inventory_summary['category_count']:,}")
+            ov3.metric("Tracked Brands", f"{inventory_summary['brand_count']:,}")
+            ov4.metric("Exact UPC Price Matches", f"{inventory_summary['price_matched_products']:,}")
+
+            chart_col1, chart_col2 = st.columns([3, 2])
+
+            with chart_col1:
+                st.subheader("Top Brands by Live Products")
+                if "brand" in live_display_df.columns:
+                    brand_counts = (
+                        live_display_df["brand"]
+                        .fillna("Unknown")
+                        .replace("", "Unknown")
+                        .value_counts()
+                        .reset_index()
+                    )
+                    brand_counts.columns = ["brand", "products"]
+                    if not brand_counts.empty:
+                        fig_live_brands = px.bar(
+                            brand_counts.head(12),
+                            x="products",
+                            y="brand",
+                            orientation="h",
+                            color="products",
+                            color_continuous_scale="Tealgrn",
+                            labels={"products": "Products Collected", "brand": ""},
+                            text="products",
+                        )
+                        fig_live_brands.update_traces(textposition="outside")
+                        fig_live_brands.update_layout(**CHART_LAYOUT, height=420)
+                        fig_live_brands.update_yaxes(categoryorder="total ascending")
+                        st.plotly_chart(fig_live_brands, width="stretch", config=CHART_CONFIG)
+                    else:
+                        st.caption("Brand data will appear here as more live products are collected.")
+                else:
+                    st.caption("Brand data will appear here as more live products are collected.")
+
+            with chart_col2:
+                st.subheader("Barcode Coverage")
+                barcode_with = (
+                    int(live_display_df["barcode"].fillna("").astype(str).str.strip().ne("").sum())
+                    if "barcode" in live_display_df.columns
+                    else 0
+                )
+                barcode_without = max(len(live_display_df) - barcode_with, 0)
+                barcode_chart_df = pd.DataFrame(
+                    {
+                        "status": ["With Barcode", "Missing Barcode"],
+                        "count": [barcode_with, barcode_without],
+                    }
+                )
+                fig_barcode = px.pie(
+                    barcode_chart_df,
+                    values="count",
+                    names="status",
+                    hole=0.55,
+                    color="status",
+                    color_discrete_map={
+                        "With Barcode": "#22c55e",
+                        "Missing Barcode": "#ef4444",
+                    },
+                )
+                fig_barcode.update_traces(textinfo="percent+value", textfont_size=11)
+                fig_barcode.update_layout(
+                    height=420,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    showlegend=True,
+                    legend=dict(orientation="h", y=-0.1),
+                )
+                st.plotly_chart(fig_barcode, width="stretch", config=CHART_CONFIG)
+
+            latest_seen_label = "N/A"
+            if inventory_summary["latest_seen_at"] is not None:
+                latest_seen_label = pd.to_datetime(
+                    inventory_summary["latest_seen_at"], utc=True, errors="coerce"
+                ).strftime("%Y-%m-%d %H:%M UTC")
+            st.caption(
+                f"Latest live observation: {latest_seen_label} | "
+                f"Size snapshots stored: {inventory_summary['size_snapshot_count']:,}"
+            )
 
         with preview_tab:
             st.subheader("Recently Collected Products")
-            preview = products_df.copy()
-            if "last_seen_at" in preview.columns:
-                preview["last_seen_at"] = pd.to_datetime(preview["last_seen_at"], utc=True, errors="coerce")
-                preview["last_seen_at"] = preview["last_seen_at"].dt.strftime("%Y-%m-%d %H:%M UTC")
+            preview = live_display_df.copy()
+            for column in ["last_seen_at", "source_last_modified_at"]:
+                if column in preview.columns:
+                    preview[column] = pd.to_datetime(preview[column], utc=True, errors="coerce")
+                    preview[column] = preview[column].dt.strftime("%Y-%m-%d %H:%M UTC")
 
             preview_columns = [
                 "name",
@@ -1272,6 +1504,7 @@ else:
                 "category",
                 "barcode",
                 "last_seen_at",
+                "source_last_modified_at",
             ]
             existing_preview_columns = [col for col in preview_columns if col in preview.columns]
             st.dataframe(
@@ -1286,30 +1519,77 @@ else:
 
         with category_tab:
             st.subheader("Products by Category")
-            if "category" in products_df.columns:
+            if "category" in live_display_df.columns:
                 category_counts = (
-                    products_df["category"]
+                    live_display_df["category"]
                     .fillna("Unknown")
+                    .replace("", "Unknown")
                     .value_counts()
                     .reset_index()
                 )
                 category_counts.columns = ["category", "products"]
-                fig_live_categories = px.bar(
-                    category_counts.head(15),
-                    x="products",
-                    y="category",
-                    orientation="h",
-                    color="products",
-                    color_continuous_scale="Blues",
-                    labels={"products": "Products Collected", "category": ""},
-                    text="products",
-                )
-                fig_live_categories.update_traces(textposition="outside")
-                fig_live_categories.update_layout(**CHART_LAYOUT, height=420)
-                fig_live_categories.update_yaxes(categoryorder="total ascending")
-                st.plotly_chart(fig_live_categories, width="stretch", config=CHART_CONFIG)
+                if not category_counts.empty:
+                    fig_live_categories = px.bar(
+                        category_counts.head(15),
+                        x="products",
+                        y="category",
+                        orientation="h",
+                        color="products",
+                        color_continuous_scale="Blues",
+                        labels={"products": "Products Collected", "category": ""},
+                        text="products",
+                    )
+                    fig_live_categories.update_traces(textposition="outside")
+                    fig_live_categories.update_layout(**CHART_LAYOUT, height=420)
+                    fig_live_categories.update_yaxes(categoryorder="total ascending")
+                    st.plotly_chart(fig_live_categories, width="stretch", config=CHART_CONFIG)
+                else:
+                    st.caption("Category data will appear here as products are scanned.")
             else:
                 st.caption("Category data will appear here as products are scanned.")
+
+        with integrity_tab:
+            in1, in2, in3, in4 = st.columns(4)
+            in1.metric("Barcode Coverage", f"{inventory_summary['barcode_coverage_pct']:.1f}%")
+            in2.metric(
+                "Source Timestamp Coverage",
+                f"{inventory_summary['source_timestamp_coverage_pct']:.1f}%",
+            )
+            in3.metric(
+                "Exact UPC Match Coverage",
+                f"{inventory_summary['exact_price_match_pct']:.1f}%",
+            )
+            in4.metric("Size Snapshots Stored", f"{inventory_summary['size_snapshot_count']:,}")
+
+            integrity_rules = pd.DataFrame(
+                [
+                    {
+                        "Rule": "No static seed data",
+                        "Status": "Enabled",
+                        "Details": "Historical demo rows are not loaded into the dashboard database.",
+                    },
+                    {
+                        "Rule": "Live product source",
+                        "Status": "Open Food Facts",
+                        "Details": "Products are inserted only from live Open Food Facts API responses that pass name, identity, and package-size parsing checks.",
+                    },
+                    {
+                        "Rule": "Price source",
+                        "Status": "Exact UPC only",
+                        "Details": "Kroger prices are attached only when the API returns an exact barcode match for the same product.",
+                    },
+                    {
+                        "Rule": "Shrink detection",
+                        "Status": "Live snapshots only",
+                        "Details": "A shrink case is created only after a later live observation records a smaller package size for the same product.",
+                    },
+                ]
+            )
+            st.dataframe(integrity_rules, width="stretch", hide_index=True)
+            st.caption(
+                f"Top live category: {inventory_summary['top_category']} | "
+                f"Top live brand: {inventory_summary['top_brand']}"
+            )
 
         if _scan_result.get("off_error"):
             st.warning(f"Open Food Facts scan warning: {_scan_result['off_error']}")
