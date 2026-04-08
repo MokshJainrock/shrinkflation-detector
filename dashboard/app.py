@@ -615,7 +615,7 @@ with tab_overview:
                 hovertemplate="<b>%{y}</b><br>Cases: %{x}<extra></extra>",
             )
             fig_hist_cat.update_layout(**CHART_LAYOUT, height=380)
-            st.plotly_chart(fig_hist_cat, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_hist_cat, use_container_width=True, config=CHART_CONFIG, theme=None)
         else:
             st.info("Historical data not loaded yet.")
 
@@ -643,7 +643,7 @@ with tab_overview:
                 hovertemplate="<b>%{y}</b><br>Cases: %{x}<extra></extra>",
             )
             fig_live_cat.update_layout(**CHART_LAYOUT, height=380)
-            st.plotly_chart(fig_live_cat, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_live_cat, use_container_width=True, config=CHART_CONFIG, theme=None)
         else:
             st.markdown("""
             <div class="funnel-card">
@@ -700,7 +700,7 @@ with tab_overview:
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=12)),
             )
             fig_timeline.update_xaxes(type="linear", tickmode="linear", dtick=1)
-            st.plotly_chart(fig_timeline, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_timeline, use_container_width=True, config=CHART_CONFIG, theme=None)
     else:
         st.info("No flag data available for timeline.")
 
@@ -738,7 +738,7 @@ with tab_overview:
                 hovertemplate="<b>%{y}</b><br>Cases: %{x}<extra></extra>",
             )
             fig_brands.update_layout(**CHART_LAYOUT, height=400)
-            st.plotly_chart(fig_brands, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_brands, use_container_width=True, config=CHART_CONFIG, theme=None)
         else:
             st.info("No flag data loaded.")
 
@@ -762,7 +762,7 @@ with tab_overview:
                 font=dict(color="#1e293b"),
                 showlegend=True, legend=dict(orientation="h", y=-0.1, font=dict(size=12)),
             )
-            st.plotly_chart(fig_donut, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_donut, use_container_width=True, config=CHART_CONFIG, theme=None)
         else:
             st.info("No severity data.")
 
@@ -793,7 +793,7 @@ with tab_overview:
             hovertemplate="<b>%{y}</b><br>Avg PPU Increase: +%{x:.1f}%<extra></extra>",
         )
         fig_ppu.update_layout(**CHART_LAYOUT, height=380)
-        st.plotly_chart(fig_ppu, use_container_width=True, config=CHART_CONFIG)
+        st.plotly_chart(fig_ppu, use_container_width=True, config=CHART_CONFIG, theme=None)
     else:
         st.info("Price-per-unit data not yet available.")
 
@@ -1106,7 +1106,7 @@ with tab_deepdive:
                     height=max(300, len(_brand_plot.head(20)) * 30),
                 )
                 fig_brand.update_yaxes(categoryorder="total ascending")
-                st.plotly_chart(fig_brand, use_container_width=True, config=CHART_CONFIG)
+                st.plotly_chart(fig_brand, use_container_width=True, config=CHART_CONFIG, theme=None)
             else:
                 st.info("No price-per-unit data available for this brand's flags.")
 
@@ -1121,7 +1121,7 @@ with tab_deepdive:
                         title=f"Size Change Distribution — {dive_brand}",
                     )
                     fig_hist.update_layout(**CHART_LAYOUT, height=280, barmode="stack")
-                    st.plotly_chart(fig_hist, use_container_width=True, config=CHART_CONFIG)
+                    st.plotly_chart(fig_hist, use_container_width=True, config=CHART_CONFIG, theme=None)
     else:
         st.info("No confirmed case data loaded yet.")
 
@@ -1200,7 +1200,7 @@ with tab_deepdive:
                 )
                 fig_combo.update_yaxes(title_text="Size", secondary_y=False)
                 fig_combo.update_yaxes(title_text="Price ($)", secondary_y=True)
-                st.plotly_chart(fig_combo, use_container_width=True, config=CHART_CONFIG)
+                st.plotly_chart(fig_combo, use_container_width=True, config=CHART_CONFIG, theme=None)
 
                 events = history.get("confirmed_events", [])
                 if events:
@@ -1281,7 +1281,7 @@ with tab_explorer:
                 **CHART_LAYOUT, height=420,
                 legend=dict(orientation="h", yanchor="bottom", y=-0.3, font=dict(size=12)),
             )
-            st.plotly_chart(fig_scatter, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_scatter, use_container_width=True, config=CHART_CONFIG, theme=None)
         else:
             st.info("Not enough data for scatter plot with current filters.")
 
@@ -1311,7 +1311,7 @@ with tab_explorer:
                 plot_bgcolor="white", paper_bgcolor="white",
                 font=dict(size=12, color="#1e293b"),
             )
-            st.plotly_chart(fig_heat, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig_heat, use_container_width=True, config=CHART_CONFIG, theme=None)
         else:
             st.info("Not enough brand/category combinations for heatmap with current filters.")
 
