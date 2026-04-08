@@ -1,11 +1,8 @@
 requests
-beautifulsoup4
 sqlalchemy
 pandas
-numpy
 streamlit
 plotly
-streamlit-autorefresh
 apscheduler
 openai
 python-dotenv

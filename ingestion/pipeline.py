@@ -1,47 +1,50 @@
 """
-Live-only ingestion pipeline — scans Open Food Facts every 60 seconds.
+Live ingestion pipeline — runs every 30 minutes.
 
-NO seed data, NO verified cases, NO historical records.
-Every single product in the database comes from a live API call.
+What this pipeline does:
+  - calls live_tracker.run_live_update() to ingest OFF product snapshots
+  - calls kroger.scrape_kroger() to enrich with real prices
+  - logs each run to the IngestionRun table
 
-Schedule:
-  • Every 1 minute → fetch 2 categories from Open Food Facts API,
-                      store product snapshots, run shrinkflation detector
+What this pipeline does NOT do:
+  - run the shrinkflation detector (Phase 5, separate concern)
+  - create ShrinkflationFlags
+  - use size-only inference
 
-Data sources:
-  - https://world.openfoodfacts.org/api/v2/  (product sizes + barcodes)
-  - https://prices.openfoodfacts.org/api/v1/  (crowd-sourced real prices)
+Note on Streamlit Cloud deployment:
+  APScheduler background threads are not reliable on Streamlit Cloud free tier.
+  On Streamlit Cloud, ingestion is triggered inline by _run_live_scan() in
+  dashboard/app.py on each 30-minute page refresh.
+  This pipeline file is used for local development and server deployments only.
 """
+
+from __future__ import annotations
 
 import logging
 import threading
 import time
 from datetime import datetime, timezone
-
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_scheduler: BackgroundScheduler | None = None
+# Lazy import to avoid circular imports and Streamlit context issues
+_scheduler = None
 _scheduler_lock = threading.Lock()
-
-# Rotate through categories — each tick scans 2, cycling through all
 _tick_counter = 0
 _tick_lock = threading.Lock()
 
 
 def ingest_tick():
     """
-    One scan tick — runs every 60 seconds.
+    One ingestion tick.
 
-    Fetches 2 categories from Open Food Facts (rotates each tick so all 17
-    categories are covered within ~9 minutes). Stores real product snapshots.
-    Runs shrinkflation detection on all stored products.
+    Fetches product snapshots from Open Food Facts and enriches with
+    Kroger prices. Does NOT run the shrinkflation detector.
     """
     global _tick_counter
     from scraper.live_tracker import run_live_update
-    from analysis.detector import run_detection
+    from scraper.kroger import scrape_kroger
 
     with _tick_lock:
         _tick_counter += 1
@@ -50,105 +53,89 @@ def ingest_tick():
     start = datetime.now(timezone.utc)
     logger.info(f"[pipeline] ── tick #{tick} started ──")
 
-    # ── Fetch live products from OFF ──────────────────────────────────────
+    # ── Open Food Facts ──────────────────────────────────────────────────
+    off_stats = {}
     try:
-        stats = run_live_update(max_categories=2)
-        new_p = stats.get("new_products", 0)
-        new_s = stats.get("new_snapshots", 0)
-        changes = stats.get("size_changes_detected", 0)
+        off_stats = run_live_update(max_categories=3)
         logger.info(
-            f"[pipeline] tick #{tick}: {new_p} new products, "
-            f"{new_s} snapshots, {changes} size changes"
+            f"[pipeline] tick #{tick} OFF: "
+            f"+{off_stats.get('new_products', 0)} products | "
+            f"+{off_stats.get('new_snapshots', 0)} snapshots | "
+            f"phase={off_stats.get('phase', '?')} | "
+            f"panel={off_stats.get('panel_size', '?')} | "
+            f"errors={off_stats.get('off_errors', 0)}"
         )
     except Exception as exc:
-        logger.error(f"[pipeline] live_update failed: {exc}", exc_info=True)
-        return
+        logger.error(f"[pipeline] tick #{tick} OFF failed: {exc}", exc_info=True)
 
-    # ── Run detector ──────────────────────────────────────────────────────
+    # ── Kroger price enrichment ──────────────────────────────────────────
     try:
-        new_flags = run_detection()
-        logger.info(f"[pipeline] tick #{tick}: {new_flags} detection flags")
+        matched, kr_snaps = scrape_kroger(max_categories=2)
+        logger.info(
+            f"[pipeline] tick #{tick} Kroger: "
+            f"{matched} matched | {kr_snaps} price snapshots"
+        )
     except Exception as exc:
-        logger.error(f"[pipeline] detection failed: {exc}", exc_info=True)
-        new_flags = 0
+        logger.error(f"[pipeline] tick #{tick} Kroger failed: {exc}", exc_info=True)
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     logger.info(f"[pipeline] ── tick #{tick} done in {elapsed:.1f}s ──")
 
-    _write_run_log(
-        job_type="live",
-        stats={**stats, "new_flags": new_flags, "tick": tick},
-        elapsed=elapsed,
-    )
 
-
-def _write_run_log(job_type: str, stats: dict, elapsed: float):
-    """Persist run metadata so dashboard can show last-scan time."""
-    try:
-        from db.models import AgentInsight, get_session
-        session = get_session()
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        session.add(AgentInsight(
-            insight_type=f"ingest_{job_type}",
-            content=(
-                f"[{job_type}] {ts} | "
-                + " | ".join(f"{k}: {v}" for k, v in stats.items())
-                + f" | elapsed: {elapsed:.1f}s"
-            ),
-            generated_at=datetime.now(timezone.utc),
-        ))
-        session.commit()
-        session.close()
-    except Exception as exc:
-        logger.warning(f"[pipeline] could not write run log: {exc}")
-
-
-def start_scheduler() -> BackgroundScheduler:
+def start_scheduler():
     """
-    Start the live scanner — runs ingest_tick() every 60 seconds.
-    Safe to call multiple times (singleton).
+    Start the background ingestion scheduler — runs ingest_tick() every 30 minutes.
+    Safe to call multiple times (singleton guard).
+    Returns the scheduler instance.
     """
     global _scheduler
+
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+    except ImportError:
+        logger.error("[pipeline] APScheduler not installed — cannot start scheduler")
+        return None
+
     with _scheduler_lock:
         if _scheduler is not None and _scheduler.running:
-            logger.debug("[pipeline] scheduler already running — no-op")
+            logger.debug("[pipeline] Scheduler already running — no-op")
             return _scheduler
 
         _scheduler = BackgroundScheduler(timezone="UTC")
-
         _scheduler.add_job(
             ingest_tick,
-            trigger=IntervalTrigger(seconds=60),
-            id="live_scan",
-            name="Live: OFF category scan every 60s",
+            trigger=IntervalTrigger(seconds=1800),  # 30 minutes
+            id="live_ingest",
+            name="Live ingestion: OFF + Kroger every 30 min",
             replace_existing=True,
-            misfire_grace_time=30,
+            misfire_grace_time=120,
         )
-
         _scheduler.start()
-        logger.info("[pipeline] scheduler started — scanning every 60 seconds")
+        logger.info("[pipeline] Scheduler started — ingesting every 30 minutes")
 
-    # Fire first tick immediately in a background thread
-    threading.Thread(target=ingest_tick, daemon=True).start()
+    # Fire the first tick immediately in a background thread so the DB
+    # has data before the first scheduled run
+    threading.Thread(target=ingest_tick, daemon=True, name="ingest-tick-0").start()
 
     return _scheduler
 
 
 def stop_scheduler():
-    """Gracefully shut down."""
+    """Gracefully shut down the scheduler."""
     global _scheduler
     with _scheduler_lock:
         if _scheduler and _scheduler.running:
             _scheduler.shutdown(wait=False)
-            logger.info("[pipeline] scheduler stopped")
+            logger.info("[pipeline] Scheduler stopped")
             _scheduler = None
 
 
 def run_once():
-    """Run a single scan tick synchronously."""
-    print("[pipeline] Running one live scan...")
+    """Run a single ingestion tick synchronously. Useful for testing."""
+    logger.info("[pipeline] Running single ingestion tick...")
     ingest_tick()
-    print("[pipeline] Done.")
+    logger.info("[pipeline] Done.")
 
 
 if __name__ == "__main__":
@@ -158,8 +145,8 @@ if __name__ == "__main__":
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     print("=" * 60)
-    print("Shrinkflation Detector — Live Scanner")
-    print("  Scanning Open Food Facts every 60 seconds")
+    print("Shrinkflation Detector — Live Ingestion Pipeline")
+    print("  Ingesting OFF + Kroger every 30 minutes")
     print("  Press Ctrl+C to stop")
     print("=" * 60)
 
