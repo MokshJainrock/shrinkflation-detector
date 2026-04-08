@@ -11,13 +11,14 @@ What this module does NOT do:
   - create new Product rows (price enrichment only, never discovery)
   - create ShrinkflationFlags
   - copy size from the DB (uses Kroger's own reported item.size)
-  - use fuzzy matching as primary identity logic
+  - use unconstrained fuzzy matching (token overlap requires brand match + ≥60% threshold)
   - mark success when price is missing
 
 Identity matching order:
   1. barcode (Product.barcode == Kroger item UPC)
   2. identity_key (normalized brand::name lookup)
-  3. skip — no fallback to fuzzy matching
+  3. token-overlap match (brand must match, ≥60% name-token overlap)
+  4. skip — unmatched products are logged and ignored
 
 Schema fields used:
   ProductSnapshot.data_source      = "live_kroger"
@@ -205,35 +206,202 @@ def _extract_price_and_size(kroger_item: dict) -> tuple:
 # Identity resolution (Kroger: match-only, never create)
 # ---------------------------------------------------------------------------
 
-def _normalize(s: str) -> str:
+# ---------------------------------------------------------------------------
+# Text normalization for matching
+# ---------------------------------------------------------------------------
+
+# Words removed during normalization — these appear in Kroger product names
+# but not in OFF names (or vice versa) and cause identity_key mismatches.
+_FILLER_WORDS = frozenset([
+    "pack", "pk", "ct", "count", "size", "original", "classic",
+    "flavor", "flavored", "style", "variety", "bag", "box", "bottle",
+    "can", "jar", "pouch", "container", "family", "value", "snack",
+    "snacks", "item", "each", "ea", "approx", "about",
+])
+
+# Tokens that look like sizes — stripped during token matching to avoid
+# "9.5 oz" in Kroger name conflicting with "10 oz" in OFF name.
+_SIZE_PATTERN = re.compile(r"^\d+\.?\d*$")
+_UNIT_TOKENS = frozenset([
+    "oz", "fl", "lb", "lbs", "g", "kg", "ml", "l", "ct", "pk",
+    "gal", "gl", "pt", "qt", "liter", "litre",
+])
+
+
+def normalize_text(s: str) -> str:
+    """
+    Normalize a product name or brand for matching.
+
+    Pipeline:
+      1. lowercase
+      2. strip punctuation (keep alphanumeric + whitespace)
+      3. remove filler/packaging words
+      4. collapse whitespace
+    """
     s = s.lower().strip()
+    s = re.sub(r"[^\w\s]", "", s)          # remove punctuation
+    tokens = s.split()
+    tokens = [t for t in tokens if t not in _FILLER_WORDS]
+    return " ".join(tokens).strip()
+
+
+def _normalize_brand(brand: str) -> str:
+    """Normalize brand only — lighter than full text normalization."""
+    s = brand.lower().strip()
     s = re.sub(r"[^\w\s]", "", s)
     s = re.sub(r"\s+", " ", s)
     return s.strip()
 
 
-def _resolve_existing_product(session, barcode: Optional[str], brand: str, name: str) -> Optional[Product]:
+def _make_identity_key(brand: str, name: str) -> str:
+    """Build identity key — must match live_tracker's format exactly."""
+    # live_tracker uses its own _normalize which is: lower, strip punctuation,
+    # collapse whitespace. We replicate that exact behavior here (no filler
+    # removal) so identity_key lookups work across modules.
+    b = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", brand.lower().strip())).strip()
+    n = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", name.lower().strip())).strip()
+    return f"{b}::{n}"
+
+
+def _tokenize_for_matching(s: str) -> set[str]:
     """
-    Find an existing Product by barcode or identity_key.
+    Tokenize a product name for overlap matching.
+
+    Removes filler words, size numbers, and unit tokens so that
+    "Kroger Classic Potato Chips 9.5 oz" → {"kroger", "potato", "chips"}
+    """
+    s = normalize_text(s)
+    tokens = set()
+    for t in s.split():
+        if _SIZE_PATTERN.match(t):
+            continue
+        if t in _UNIT_TOKENS:
+            continue
+        if len(t) < 2:
+            continue
+        tokens.add(t)
+    return tokens
+
+
+def _resolve_existing_product(
+    session, barcode: Optional[str], brand: str, name: str,
+) -> Optional[Product]:
+    """
+    Find an existing Product using a 3-step matching pipeline.
     Kroger NEVER creates new products — returns None if not found.
+
+    Steps:
+      1. Barcode match (highest confidence)
+      2. Exact identity_key match
+      3. Token-overlap match: same brand + ≥60% name-token overlap
+
+    Each step is strictly gated. False negatives are preferred over
+    false positives.
     """
-    # Step 1: barcode match
+    # ── Step 1: barcode match ────────────────────────────────────────
     if barcode:
-        match = session.query(Product).filter(Product.barcode == barcode.strip()).first()
+        match = session.query(Product).filter(
+            Product.barcode == barcode.strip()
+        ).first()
         if match:
+            logger.debug(
+                f"[kroger] MATCH barcode={barcode} → "
+                f"product_id={match.id} name={match.name}"
+            )
             return match
 
-    # Step 2: identity_key match (live products only)
-    identity_key = f"{_normalize(brand)}::{_normalize(name)}"
+    # ── Step 2: exact identity_key match ─────────────────────────────
+    identity_key = _make_identity_key(brand, name)
     match = (
         session.query(Product)
         .filter(
             Product.identity_key == identity_key,
-            Product.data_source.in_(["live_openfoodfacts", "live_kroger"]),
+            Product.data_source.in_(
+                ["live_openfoodfacts", "live_kroger", "live_combined"]
+            ),
         )
         .first()
     )
-    return match  # None if not found
+    if match:
+        logger.debug(
+            f"[kroger] MATCH identity_key='{identity_key}' → "
+            f"product_id={match.id} name={match.name}"
+        )
+        return match
+
+    # ── Step 3: token-overlap match (brand + name tokens) ────────────
+    #
+    # Load all live products whose normalized brand matches, then score
+    # by name-token overlap. This catches cases where Kroger names are
+    # slightly different from OFF names (e.g., "Lays Classic Potato
+    # Chips 9.5 OZ" vs "Lay's Potato Chips").
+    #
+    # Guard-rails:
+    #   - brand must match exactly (after normalization)
+    #   - ≥60% of the DB product's name tokens must appear in the
+    #     Kroger name tokens
+    #   - if multiple products match, pick the one with highest overlap
+    #     (ties broken by shortest name — more specific is safer)
+
+    kr_brand_norm = _normalize_brand(brand)
+    if not kr_brand_norm:
+        logger.info(f"[kroger] UNMATCHED (no brand): {name}")
+        return None
+
+    kr_name_tokens = _tokenize_for_matching(name)
+    if len(kr_name_tokens) < 2:
+        # Too few tokens to match safely
+        logger.info(f"[kroger] UNMATCHED (too few tokens): {brand} — {name}")
+        return None
+
+    # Query candidate products: same normalized brand, live sources only
+    candidates = (
+        session.query(Product)
+        .filter(
+            Product.data_source.in_(
+                ["live_openfoodfacts", "live_kroger", "live_combined"]
+            ),
+        )
+        .all()
+    )
+
+    best_match = None
+    best_ratio = 0.0
+
+    for candidate in candidates:
+        # Brand must match
+        cand_brand_norm = _normalize_brand(candidate.brand or "")
+        if cand_brand_norm != kr_brand_norm:
+            continue
+
+        # Compute token overlap
+        cand_name_tokens = _tokenize_for_matching(candidate.name or "")
+        if not cand_name_tokens:
+            continue
+
+        overlap = kr_name_tokens & cand_name_tokens
+        # Ratio = how much of the candidate's name is covered
+        ratio = len(overlap) / len(cand_name_tokens)
+
+        if ratio >= 0.6 and ratio > best_ratio:
+            best_ratio = ratio
+            best_match = candidate
+        elif ratio == best_ratio and best_match is not None:
+            # Tie-break: prefer shorter name (more specific)
+            if len(candidate.name or "") < len(best_match.name or ""):
+                best_match = candidate
+
+    if best_match:
+        logger.info(
+            f"[kroger] MATCH token-overlap ({best_ratio:.0%}): "
+            f"'{brand} — {name}' → "
+            f"product_id={best_match.id} name='{best_match.name}'"
+        )
+        return best_match
+
+    # ── Step 4: no match ─────────────────────────────────────────────
+    logger.info(f"[kroger] UNMATCHED: {brand} — {name}")
+    return None
 
 
 # ---------------------------------------------------------------------------
