@@ -7,7 +7,7 @@ What this pipeline does:
   - logs each run to the IngestionRun table
 
 What this pipeline does NOT do:
-  - run the shrinkflation detector (Phase 5, separate concern)
+  - run the shrinkflation detector (separate concern)
   - create ShrinkflationFlags
   - use size-only inference
 

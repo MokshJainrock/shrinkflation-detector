@@ -8,7 +8,7 @@ What this module does:
   - enforces fill-phase → track-phase panel size control
 
 What this module does NOT do:
-  - create ShrinkflationFlags (Phase 5 detector only)
+  - create ShrinkflationFlags (detector only)
   - infer price impact from size alone
   - fall back to historical data when live data is missing
   - use fuzzy string matching as primary identity logic
@@ -273,7 +273,7 @@ def _should_insert_snapshot(
       - Last live snapshot was > SNAPSHOT_MIN_INTERVAL_S ago
 
     This means we record one snapshot per scan cycle per product.
-    The detector in Phase 5 compares snapshots across time — it needs
+    The detector compares snapshots across time — it needs
     regular observations even when nothing changed.
     """
     last = (

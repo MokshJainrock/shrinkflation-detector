@@ -1,6 +1,6 @@
 """
 Shrinkflation Detector — Streamlit Dashboard
-Phase 6: Hybrid-aware, source-correct, recruiter-ready.
+Hybrid-aware, source-correct, recruiter-ready.
 
 Data architecture:
   - documented_historical : 500+ verified cases from BLS, Consumer Reports,
@@ -14,7 +14,6 @@ Data architecture:
 Refresh policy:
   - No auto-refresh. Live scan runs once per 30-minute cache window.
   - Manual refresh button clears the cache and re-runs the scan.
-  - "Refreshes every 60 seconds" has been removed everywhere.
 """
 
 from __future__ import annotations
@@ -1550,7 +1549,7 @@ with tab_methodology:
     - Does NOT present unconfirmed size changes as shrinkflation
     - Does NOT use historical prices as proxies for live prices
     - Does NOT combine historical and live counts without labeling them separately
-    - Does NOT auto-refresh every 60 seconds (scan runs on a 30-minute cache window)
+    - Does NOT auto-refresh (scan runs on a 30-minute cache window)
     - Does NOT fabricate trend lines when live data is sparse
     - Does NOT hide zero live detections — they are shown honestly with an explanation
     """)
