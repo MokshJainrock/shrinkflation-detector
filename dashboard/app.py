@@ -150,12 +150,14 @@ st.markdown("""
 # CHART DEFAULTS
 # =====================================================================
 CHART_LAYOUT = dict(
-    plot_bgcolor="rgba(0,0,0,0)",
-    paper_bgcolor="rgba(0,0,0,0)",
-    xaxis=dict(showgrid=False),
-    yaxis=dict(showgrid=False),
-    margin=dict(l=10, r=10, t=40, b=20),
-    font=dict(size=12, family="Inter, system-ui, sans-serif"),
+    template="plotly_white",
+    plot_bgcolor="white",
+    paper_bgcolor="white",
+    xaxis=dict(showgrid=True, gridcolor="#f0f0f0", zeroline=False),
+    yaxis=dict(showgrid=False, zeroline=False),
+    margin=dict(l=20, r=20, t=30, b=20),
+    font=dict(size=13, family="Inter, system-ui, sans-serif", color="#1e293b"),
+    coloraxis_showscale=False,
 )
 CHART_CONFIG = {"displayModeBar": False, "responsive": True}
 SEVERITY_COLORS = {"HIGH": "#e74c3c", "MEDIUM": "#f39c12", "LOW": "#f1c40f"}
@@ -603,12 +605,16 @@ with tab_overview:
             )
             fig_hist_cat = px.bar(
                 _cat_hist, x="cases", y="category", orientation="h",
-                color="cases", color_continuous_scale="Blues",
+                color="cases", color_continuous_scale=["#e0e7ff", "#6366f1", "#4338ca"],
                 labels={"cases": "Confirmed Cases", "category": ""},
                 text="cases",
             )
-            fig_hist_cat.update_traces(textposition="outside")
-            fig_hist_cat.update_layout(**CHART_LAYOUT, height=380, coloraxis_showscale=False)
+            fig_hist_cat.update_traces(
+                textposition="outside",
+                textfont=dict(size=12, color="#1e293b"),
+                hovertemplate="<b>%{y}</b><br>Cases: %{x}<extra></extra>",
+            )
+            fig_hist_cat.update_layout(**CHART_LAYOUT, height=380)
             st.plotly_chart(fig_hist_cat, use_container_width=True, config=CHART_CONFIG)
         else:
             st.info("Historical data not loaded yet.")
@@ -627,12 +633,16 @@ with tab_overview:
             )
             fig_live_cat = px.bar(
                 _cat_live, x="cases", y="category", orientation="h",
-                color="cases", color_continuous_scale="Greens",
+                color="cases", color_continuous_scale=["#dcfce7", "#22c55e", "#15803d"],
                 labels={"cases": "Confirmed Cases", "category": ""},
                 text="cases",
             )
-            fig_live_cat.update_traces(textposition="outside")
-            fig_live_cat.update_layout(**CHART_LAYOUT, height=380, coloraxis_showscale=False)
+            fig_live_cat.update_traces(
+                textposition="outside",
+                textfont=dict(size=12, color="#1e293b"),
+                hovertemplate="<b>%{y}</b><br>Cases: %{x}<extra></extra>",
+            )
+            fig_live_cat.update_layout(**CHART_LAYOUT, height=380)
             st.plotly_chart(fig_live_cat, use_container_width=True, config=CHART_CONFIG)
         else:
             st.markdown("""
@@ -676,15 +686,18 @@ with tab_overview:
             fig_timeline = px.bar(
                 _yearly, x="year", y="count", color="source_label",
                 color_discrete_map={
-                    "Documented Historical": "#818cf8",
-                    "Confirmed Live": "#4ade80",
+                    "Documented Historical": "#6366f1",
+                    "Confirmed Live": "#22c55e",
                 },
                 labels={"year": "Year", "count": "Cases", "source_label": "Source"},
                 barmode="stack",
             )
+            fig_timeline.update_traces(
+                hovertemplate="<b>%{x}</b><br>Cases: %{y}<extra></extra>",
+            )
             fig_timeline.update_layout(
                 **CHART_LAYOUT, height=320,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=12)),
             )
             fig_timeline.update_xaxes(type="linear", tickmode="linear", dtick=1)
             st.plotly_chart(fig_timeline, use_container_width=True, config=CHART_CONFIG)
@@ -710,18 +723,21 @@ with tab_overview:
                     avg_ppu=("price_per_unit_increase_pct", "mean"),
                 )
                 .reset_index()
-                .sort_values("cases", ascending=False)
-                .head(10)
+                .sort_values("cases", ascending=True)
+                .tail(10)
             )
             fig_brands = px.bar(
                 _brand_agg, x="cases", y="brand", orientation="h",
-                color="avg_ppu", color_continuous_scale="Reds",
-                labels={"cases": "Confirmed Cases", "brand": "", "avg_ppu": "Avg PPU Increase %"},
+                color="cases", color_continuous_scale=["#dbeafe", "#3b82f6", "#1e40af"],
+                labels={"cases": "Confirmed Cases", "brand": ""},
                 text="cases",
             )
-            fig_brands.update_traces(textposition="outside")
-            fig_brands.update_layout(**CHART_LAYOUT, height=380)
-            fig_brands.update_yaxes(categoryorder="total ascending")
+            fig_brands.update_traces(
+                textposition="outside",
+                textfont=dict(size=12, color="#1e293b"),
+                hovertemplate="<b>%{y}</b><br>Cases: %{x}<extra></extra>",
+            )
+            fig_brands.update_layout(**CHART_LAYOUT, height=400)
             st.plotly_chart(fig_brands, use_container_width=True, config=CHART_CONFIG)
         else:
             st.info("No flag data loaded.")
@@ -736,10 +752,15 @@ with tab_overview:
                 color="severity", color_discrete_map=SEVERITY_COLORS,
                 hole=0.55,
             )
-            fig_donut.update_traces(textinfo="percent+value", textfont_size=11)
+            fig_donut.update_traces(
+                textinfo="percent+value", textfont_size=12,
+                hovertemplate="<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>",
+            )
             fig_donut.update_layout(
                 height=380, margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=True, legend=dict(orientation="h", y=-0.1),
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(color="#1e293b"),
+                showlegend=True, legend=dict(orientation="h", y=-0.1, font=dict(size=12)),
             )
             st.plotly_chart(fig_donut, use_container_width=True, config=CHART_CONFIG)
         else:
@@ -762,12 +783,16 @@ with tab_overview:
         )
         fig_ppu = px.bar(
             _cat_ppu, x="price_per_unit_increase_pct", y="category", orientation="h",
-            color="price_per_unit_increase_pct", color_continuous_scale="Reds",
+            color="price_per_unit_increase_pct", color_continuous_scale=["#fee2e2", "#ef4444", "#991b1b"],
             labels={"price_per_unit_increase_pct": "Avg PPU Increase (%)", "category": ""},
             text="price_per_unit_increase_pct",
         )
-        fig_ppu.update_traces(texttemplate="+%{text:.1f}%", textposition="outside")
-        fig_ppu.update_layout(**CHART_LAYOUT, height=380, coloraxis_showscale=False)
+        fig_ppu.update_traces(
+            texttemplate="+%{text:.1f}%", textposition="outside",
+            textfont=dict(size=12, color="#1e293b"),
+            hovertemplate="<b>%{y}</b><br>Avg PPU Increase: +%{x:.1f}%<extra></extra>",
+        )
+        fig_ppu.update_layout(**CHART_LAYOUT, height=380)
         st.plotly_chart(fig_ppu, use_container_width=True, config=CHART_CONFIG)
     else:
         st.info("Price-per-unit data not yet available.")
@@ -1071,7 +1096,11 @@ with tab_deepdive:
                     labels={"price_per_unit_increase_pct": "PPU Increase (%)", "product": ""},
                     text="price_per_unit_increase_pct",
                 )
-                fig_brand.update_traces(texttemplate="+%{text:.1f}%", textposition="outside")
+                fig_brand.update_traces(
+                    texttemplate="+%{text:.1f}%", textposition="outside",
+                    textfont=dict(size=11, color="#1e293b"),
+                    hovertemplate="<b>%{y}</b><br>PPU Increase: +%{x:.1f}%<extra></extra>",
+                )
                 fig_brand.update_layout(
                     **CHART_LAYOUT,
                     height=max(300, len(_brand_plot.head(20)) * 30),
@@ -1234,8 +1263,8 @@ with tab_explorer:
                 x="size_change_pct", y="price_per_unit_increase_pct",
                 color="source_label",
                 color_discrete_map={
-                    "Documented Historical": "#818cf8",
-                    "Confirmed Live": "#4ade80",
+                    "Documented Historical": "#6366f1",
+                    "Confirmed Live": "#22c55e",
                 },
                 size="size_marker",
                 hover_data=["product", "brand", "severity"],
@@ -1244,13 +1273,13 @@ with tab_explorer:
                     "price_per_unit_increase_pct": "PPU Increase (%)",
                     "source_label": "Source",
                 },
-                opacity=0.7,
+                opacity=0.75,
             )
-            fig_scatter.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-            fig_scatter.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
+            fig_scatter.add_hline(y=0, line_dash="dash", line_color="#cbd5e1", opacity=0.7)
+            fig_scatter.add_vline(x=0, line_dash="dash", line_color="#cbd5e1", opacity=0.7)
             fig_scatter.update_layout(
                 **CHART_LAYOUT, height=420,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.3),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.3, font=dict(size=12)),
             )
             st.plotly_chart(fig_scatter, use_container_width=True, config=CHART_CONFIG)
         else:
@@ -1277,7 +1306,11 @@ with tab_explorer:
                 labels={"color": "Avg PPU Increase %"},
                 text_auto=True, aspect="auto",
             )
-            fig_heat.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10))
+            fig_heat.update_layout(
+                height=420, margin=dict(l=20, r=20, t=30, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                font=dict(size=12, color="#1e293b"),
+            )
             st.plotly_chart(fig_heat, use_container_width=True, config=CHART_CONFIG)
         else:
             st.info("Not enough brand/category combinations for heatmap with current filters.")
