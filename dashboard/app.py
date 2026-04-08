@@ -678,8 +678,8 @@ with tab_overview:
             fig_timeline.update_layout(
                 **CHART_LAYOUT, height=320,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                xaxis=dict(type="linear", tickmode="linear", dtick=1),
             )
+            fig_timeline.update_xaxes(type="linear", tickmode="linear", dtick=1)
             st.plotly_chart(fig_timeline, use_container_width=True, config=CHART_CONFIG)
     else:
         st.info("No flag data available for timeline.")
