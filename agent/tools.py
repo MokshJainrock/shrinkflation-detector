@@ -245,30 +245,43 @@ def get_trend_data(weeks: int = 12, flag_source: Optional[str] = None) -> list:
 def get_product_history(product_name: str) -> dict:
     """Returns full snapshot history for a specific product."""
     session = get_session()
-    product = (
-        session.query(Product)
-        .filter(Product.name.ilike(f"%{product_name}%"))
-        .first()
-    )
+    try:
+        product = (
+            session.query(Product)
+            .filter(Product.name.ilike(f"%{product_name}%"))
+            .first()
+        )
 
-    if not product:
+        if not product:
+            return {"error": f"No product found matching '{product_name}'"}
+
+        snapshots = (
+            session.query(ProductSnapshot)
+            .filter(ProductSnapshot.product_id == product.id)
+            .order_by(ProductSnapshot.scraped_at)
+            .all()
+        )
+
+        try:
+            flags = (
+                session.query(ShrinkflationFlag)
+                .filter(ShrinkflationFlag.product_id == product.id)
+                .order_by(ShrinkflationFlag.detected_at)
+                .all()
+            )
+        except Exception:
+            # Schema migration may not have run yet; retry after migrating.
+            session.rollback()
+            from db.models import add_missing_columns
+            add_missing_columns()
+            flags = (
+                session.query(ShrinkflationFlag)
+                .filter(ShrinkflationFlag.product_id == product.id)
+                .order_by(ShrinkflationFlag.detected_at)
+                .all()
+            )
+    finally:
         session.close()
-        return {"error": f"No product found matching '{product_name}'"}
-
-    snapshots = (
-        session.query(ProductSnapshot)
-        .filter(ProductSnapshot.product_id == product.id)
-        .order_by(ProductSnapshot.scraped_at)
-        .all()
-    )
-
-    flags = (
-        session.query(ShrinkflationFlag)
-        .filter(ShrinkflationFlag.product_id == product.id)
-        .order_by(ShrinkflationFlag.detected_at)
-        .all()
-    )
-    session.close()
 
     return {
         "product": product.name,

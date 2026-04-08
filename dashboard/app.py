@@ -166,28 +166,27 @@ SOURCE_COLORS = {"documented_historical": "#818cf8", "live_detected": "#4ade80"}
 # =====================================================================
 # STARTUP — once per app lifecycle
 # =====================================================================
+# Bump _SCHEMA_VERSION whenever the DB schema changes so that
+# @st.cache_resource is invalidated and init_db + migrations re-run
+# even if Streamlit Cloud reuses a cached container.
+_SCHEMA_VERSION = 2          # v2: added dedupe_key + index
+
 @st.cache_resource
-def _init_and_load():
-    """Create tables + load documented historical cases. Idempotent."""
-    init_db()
+def _init_and_load(_version: int):
+    """
+    Create tables, migrate schema, and load historical cases. Idempotent.
+
+    init_db() calls create_all(checkfirst=True) + add_missing_columns(),
+    so every column the ORM expects is guaranteed to exist before any
+    query runs.  The _version parameter busts the Streamlit resource
+    cache when bumped.
+    """
+    init_db()                    # tables + column migrations
+    add_missing_columns()        # belt-and-suspenders: always safe
     from data.historical_loader import load_historical_cases
     load_historical_cases()
 
-_init_and_load()
-
-# Ensure schema is fully up-to-date even if the cached init missed
-# new columns.  This is idempotent and fast (<10 ms).
-add_missing_columns()
-
-# Force-clear the resource cache once so that any stale DB engine
-# from a previous deploy is discarded.  After the first run the
-# flag file prevents further clears.
-import pathlib as _pl
-_CACHE_SENTINEL = _pl.Path("/tmp/.shrinkflation_cache_cleared_v2")
-if not _CACHE_SENTINEL.exists():
-    st.cache_resource.clear()
-    _CACHE_SENTINEL.touch()
-    st.rerun()
+_init_and_load(_SCHEMA_VERSION)
 
 # =====================================================================
 # LIVE SCAN — cached for 30 minutes, runs at most once per window
