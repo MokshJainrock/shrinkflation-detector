@@ -358,26 +358,39 @@ def add_missing_columns():
     engine = get_engine()
 
     # Each entry: (table_name, column_name, sqlite_column_definition)
+    #
+    # IMPORTANT: SQLite does NOT allow ALTER TABLE ADD COLUMN with UNIQUE
+    # or NOT NULL (without DEFAULT) constraints when the table already
+    # contains rows.  Columns that need UNIQUE are added plain here and
+    # then get a CREATE UNIQUE INDEX below.
     _MIGRATIONS: list[tuple[str, str, str]] = [
         # products
-        ("products", "data_source",   "TEXT NOT NULL DEFAULT 'documented_historical'"),
+        ("products", "data_source",   "TEXT DEFAULT 'documented_historical'"),
         ("products", "identity_key",  "TEXT"),
 
         # product_snapshots
         ("product_snapshots", "size_unit_family", "TEXT"),
-        ("product_snapshots", "data_source",       "TEXT NOT NULL DEFAULT 'documented_historical'"),
-        ("product_snapshots", "observation_type",  "TEXT NOT NULL DEFAULT 'real_observed'"),
+        ("product_snapshots", "data_source",       "TEXT DEFAULT 'documented_historical'"),
+        ("product_snapshots", "observation_type",  "TEXT DEFAULT 'real_observed'"),
 
         # shrinkflation_flags
-        ("shrinkflation_flags", "flag_source",                  "TEXT NOT NULL DEFAULT 'documented_historical'"),
+        ("shrinkflation_flags", "flag_source",                  "TEXT DEFAULT 'documented_historical'"),
         ("shrinkflation_flags", "size_unit",                    "TEXT"),
-        ("shrinkflation_flags", "has_price_evidence",           "INTEGER NOT NULL DEFAULT 0"),
+        ("shrinkflation_flags", "has_price_evidence",           "INTEGER DEFAULT 0"),
         ("shrinkflation_flags", "price_per_unit_increase_pct",  "REAL"),
-        ("shrinkflation_flags", "evidence_old_snapshot_id",     "INTEGER REFERENCES product_snapshots(id)"),
-        ("shrinkflation_flags", "evidence_new_snapshot_id",     "INTEGER REFERENCES product_snapshots(id)"),
-        ("shrinkflation_flags", "evidence_old_size_snapshot_id","INTEGER REFERENCES product_snapshots(id)"),
-        ("shrinkflation_flags", "evidence_new_size_snapshot_id","INTEGER REFERENCES product_snapshots(id)"),
-        ("shrinkflation_flags", "dedupe_key",                   "TEXT UNIQUE"),
+        ("shrinkflation_flags", "evidence_old_snapshot_id",     "INTEGER"),
+        ("shrinkflation_flags", "evidence_new_snapshot_id",     "INTEGER"),
+        ("shrinkflation_flags", "evidence_old_size_snapshot_id","INTEGER"),
+        ("shrinkflation_flags", "evidence_new_size_snapshot_id","INTEGER"),
+        ("shrinkflation_flags", "dedupe_key",                   "TEXT"),
+    ]
+
+    # Unique indexes to create after columns exist.
+    # CREATE UNIQUE INDEX IF NOT EXISTS is idempotent and works on
+    # existing tables — unlike the UNIQUE constraint in ADD COLUMN.
+    _INDEXES: list[tuple[str, str, str]] = [
+        # (index_name, table_name, column_name)
+        ("uq_flags_dedupe_key", "shrinkflation_flags", "dedupe_key"),
     ]
 
     with engine.connect() as conn:
@@ -389,6 +402,15 @@ def add_missing_columns():
                 conn.commit()
             except Exception:
                 # Column already exists (OperationalError) — safe to ignore.
+                conn.rollback()
+
+        for idx_name, table, column in _INDEXES:
+            try:
+                conn.execute(
+                    text(f"CREATE UNIQUE INDEX IF NOT EXISTS {idx_name} ON {table}({column})")
+                )
+                conn.commit()
+            except Exception:
                 conn.rollback()
 
 
