@@ -34,7 +34,7 @@ from sqlalchemy import text
 
 from db.models import (
     Product, ProductSnapshot, ShrinkflationFlag, IngestionRun, AgentInsight,
-    get_session, get_engine, init_db,
+    get_session, get_engine, init_db, add_missing_columns,
 )
 
 # =====================================================================
@@ -174,6 +174,11 @@ def _init_and_load():
     load_historical_cases()
 
 _init_and_load()
+
+# Always run migrations (idempotent, fast) so columns added after
+# the cached init_db() are present even if the DB file survived a
+# Streamlit Cloud redeploy without cache invalidation.
+add_missing_columns()
 
 # =====================================================================
 # LIVE SCAN — cached for 30 minutes, runs at most once per window
