@@ -3,40 +3,73 @@ Shrinkflation Detector — main entrypoint.
 
 Usage:
     python main.py --init         Create all DB tables
-    python main.py --scrape       Run scrapers once
-    python main.py --analyze      Run detector on all products
+    python main.py --scrape       Run one ingestion tick (OFF + Kroger) once
+    python main.py --analyze      Run the strict evidence-based detector
     python main.py --insight      Generate and print daily AI insight
     python main.py --report       Generate and print weekly AI report
     python main.py --all          Scrape + analyze + generate insight
     python main.py --schedule     Run --all every 24 hours automatically
     python main.py --dashboard    Launch Streamlit on localhost:8501
     python main.py --seed         Run one full ingestion cycle (live APIs)
-    python main.py --reseed       Wipe DB then run full live ingestion cycle
-    python main.py --live         Start continuous scheduler (hourly + daily)
+    python main.py --live         Start continuous 30-minute ingestion scheduler
+
+Note on --reseed:
+    Destructive database wipe has been removed. If you need a clean DB, delete
+    shrinkflation.db manually, then run --init to recreate it.
+    Automatic destructive wipes violate the non-fabrication guarantee: wiping
+    documented historical data and live observations would require re-seeding
+    from scratch and cannot be undone safely.
 """
 
 import argparse
 import subprocess
 import sys
 import time
-from datetime import datetime
 
 
 def cmd_init():
     from db.models import init_db
     init_db()
+    print("Database initialized.")
 
 
 def cmd_scrape():
-    from scraper.openfoodfacts import scrape_openfoodfacts
+    """
+    Run one ingestion tick: Open Food Facts (sizes) + Kroger (prices).
+
+    Data sources:
+      - Open Food Facts API — real product sizes and barcodes (.net mirror,
+        falls back to .org). Free, no authentication required.
+      - Kroger API — real US retail shelf prices. Requires KROGER_CLIENT_ID
+        and KROGER_CLIENT_SECRET in .env or Streamlit secrets.
+
+    This function does NOT run the shrinkflation detector.
+    Detection runs separately via --analyze or cmd_analyze().
+    """
+    from scraper.live_tracker import run_live_update
     from scraper.kroger import scrape_kroger
-    scrape_openfoodfacts()
-    scrape_kroger()
+
+    print("Running Open Food Facts ingestion...")
+    off_stats = run_live_update(max_categories=3)
+    print(
+        f"  OFF: +{off_stats.get('new_products', 0)} products | "
+        f"+{off_stats.get('new_snapshots', 0)} snapshots | "
+        f"phase={off_stats.get('phase', '?')} | "
+        f"panel={off_stats.get('panel_size', '?')}"
+    )
+
+    print("Running Kroger price enrichment...")
+    try:
+        matched, kr_snaps = scrape_kroger()
+        print(f"  Kroger: {matched} matched | {kr_snaps} price snapshots")
+    except Exception as e:
+        print(f"  Kroger error (check KROGER_CLIENT_ID/SECRET in .env): {e}")
 
 
 def cmd_analyze():
     from analysis.detector import run_detection
-    run_detection()
+    new_flags = run_detection()
+    print(f"Detection complete — {new_flags} new flags created.")
 
 
 def cmd_insight():
@@ -59,7 +92,7 @@ def cmd_all():
     try:
         cmd_insight()
     except Exception as e:
-        print(f"Insight generation skipped (set OPENAI_API_KEY): {e}")
+        print(f"Insight generation skipped (set OPENAI_API_KEY in .env): {e}")
 
 
 def cmd_schedule():
@@ -81,23 +114,13 @@ def cmd_dashboard():
     ])
 
 
-def cmd_reseed():
-    """Wipe DB then run a fresh live ingestion cycle from Open Food Facts + Open Prices."""
-    from db.models import Base, get_engine, init_db
-    engine = get_engine()
-    Base.metadata.drop_all(engine)
-    print("Database wiped.")
-    init_db()
-    cmd_seed()
-
-
 def cmd_seed():
     """
-    Run one complete ingestion cycle using live APIs only.
+    Run one complete ingestion tick synchronously via the pipeline.
 
-    Data sources (all real, no fabricated data):
-    - Open Food Facts API  — real product sizes and barcodes (openfoodfacts.org)
-    - Open Prices API      — crowd-sourced real retail prices from grocery receipts
+    Sources:
+      - Open Food Facts API  — real product sizes and barcodes
+      - Kroger API           — real US retail prices
     """
     from ingestion.pipeline import run_once
     run_once()
@@ -105,16 +128,16 @@ def cmd_seed():
 
 def cmd_live():
     """
-    Start the live scanner — scans Open Food Facts every 60 seconds.
+    Start the background ingestion scheduler.
+    Runs ingest_tick() (OFF + Kroger) every 30 minutes via APScheduler.
     Blocks until Ctrl+C.
     """
-    import time
     from db.models import init_db
     from ingestion.pipeline import start_scheduler, stop_scheduler
 
     print("=" * 60)
-    print("Shrinkflation Detector — Live Scanner")
-    print("  Scanning Open Food Facts every 60 seconds")
+    print("Shrinkflation Detector — Live Ingestion Scheduler")
+    print("  Ingesting Open Food Facts + Kroger every 30 minutes")
     print("  Press Ctrl+C to stop")
     print("=" * 60)
 
@@ -131,17 +154,16 @@ def cmd_live():
 
 def main():
     parser = argparse.ArgumentParser(description="Shrinkflation Detector")
-    parser.add_argument("--init", action="store_true", help="Initialize the database")
-    parser.add_argument("--scrape", action="store_true", help="Run scrapers")
-    parser.add_argument("--analyze", action="store_true", help="Run detector")
-    parser.add_argument("--insight", action="store_true", help="Generate daily AI insight")
-    parser.add_argument("--report", action="store_true", help="Generate weekly AI report")
-    parser.add_argument("--all", action="store_true", help="Scrape + analyze + insight")
-    parser.add_argument("--schedule", action="store_true", help="Run on a daily schedule")
+    parser.add_argument("--init",      action="store_true", help="Initialize the database")
+    parser.add_argument("--scrape",    action="store_true", help="Run one ingestion tick (OFF + Kroger)")
+    parser.add_argument("--analyze",   action="store_true", help="Run the shrinkflation detector")
+    parser.add_argument("--insight",   action="store_true", help="Generate daily AI insight")
+    parser.add_argument("--report",    action="store_true", help="Generate weekly AI report")
+    parser.add_argument("--all",       action="store_true", help="Scrape + analyze + insight")
+    parser.add_argument("--schedule",  action="store_true", help="Run --all every 24 hours")
     parser.add_argument("--dashboard", action="store_true", help="Launch Streamlit dashboard")
-    parser.add_argument("--seed", action="store_true", help="Run one live ingestion cycle")
-    parser.add_argument("--reseed", action="store_true", help="Wipe DB then run live ingestion")
-    parser.add_argument("--live", action="store_true", help="Start continuous hourly+daily scheduler")
+    parser.add_argument("--seed",      action="store_true", help="Run one ingestion cycle via pipeline")
+    parser.add_argument("--live",      action="store_true", help="Start 30-minute ingestion scheduler")
 
     args = parser.parse_args()
 
@@ -151,9 +173,7 @@ def main():
 
     if args.init:
         cmd_init()
-    if args.reseed:
-        cmd_reseed()
-    elif args.seed:
+    if args.seed:
         cmd_seed()
     if args.scrape:
         cmd_scrape()

@@ -43,7 +43,9 @@ KROGER_CLIENT_SECRET = _get_secret("KROGER_CLIENT_SECRET")
 OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
 
 # Open Food Facts
-OFF_BASE_URL = "https://world.openfoodfacts.org/api/v2/search"
+# Primary: .net mirror (works from Streamlit Cloud; .org returns 503 there)
+# live_tracker.py tries .net first and falls back to .org automatically.
+OFF_BASE_URL = "https://world.openfoodfacts.net/api/v2/search"
 OFF_CATEGORIES = [
     "chips", "cereal", "juice", "detergent", "cookies", "yogurt", "coffee",
     "pasta", "soap", "crackers", "bread", "mayo", "ketchup", "ice cream", "cheese",
@@ -54,10 +56,13 @@ KROGER_TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token"
 KROGER_SEARCH_URL = "https://api.kroger.com/v1/products"
 
 # Detection thresholds
-SIZE_DECREASE_THRESHOLD_PCT = 2.0
-HIGH_SEVERITY_PCT = 5.0
-MEDIUM_SEVERITY_PCT = 2.0
-LOOKBACK_DAYS = 30
+# These are used by analysis/detector.py for live detection.
+# Values are intentionally higher than inflation-era defaults to produce
+# a meaningful severity distribution across genuine detections.
+SIZE_DECREASE_THRESHOLD_PCT = 2.0    # minimum % size decrease to consider
+HIGH_SEVERITY_PPU_PCT = 20.0         # price-per-unit increase >= 20% → HIGH
+MEDIUM_SEVERITY_PPU_PCT = 8.0        # price-per-unit increase >= 8%  → MEDIUM
+LOOKBACK_DAYS = 90                   # how far back to search for old observation
 
 # Agent
 AGENT_MODEL = "gpt-4o"
