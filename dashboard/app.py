@@ -228,7 +228,7 @@ def load_flags_df() -> pd.DataFrame:
     """
     engine = get_engine()
     try:
-        return pd.read_sql(
+        df = pd.read_sql(
             """
             SELECT
                 f.id,
@@ -253,6 +253,14 @@ def load_flags_df() -> pd.DataFrame:
             """,
             engine,
         )
+        # Ensure numeric columns are truly numeric — DB drivers sometimes
+        # return object dtype when NULLs are mixed with numbers.
+        for col in ("old_size", "new_size", "old_price", "new_price", "price_per_unit_increase_pct"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        if "has_price_evidence" in df.columns:
+            df["has_price_evidence"] = df["has_price_evidence"].astype(bool)
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -963,9 +971,10 @@ with tab_compare:
 
                     if not bdata.empty:
                         st.markdown("**Flagged Products:**")
-                        _top = bdata.nlargest(5, "price_per_unit_increase_pct")[
+                        _rankable = bdata.dropna(subset=["price_per_unit_increase_pct"])
+                        _top = _rankable.nlargest(5, "price_per_unit_increase_pct")[
                             ["product", "price_per_unit_increase_pct", "severity"]
-                        ]
+                        ] if not _rankable.empty else pd.DataFrame()
                         for _, row in _top.iterrows():
                             sev_class = f"severity-{str(row['severity']).lower()}"
                             _inc = row["price_per_unit_increase_pct"]
