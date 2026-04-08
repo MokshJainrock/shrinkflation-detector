@@ -2,8 +2,8 @@
 Agent tool definitions — functions the AI agent can call to query the database.
 Each returns a dict/list that gets serialized to JSON for the agent.
 
-Phase 6 note: uses price_per_unit_increase_pct (renamed from real_price_increase_pct
-in Phase 5.1). All queries filter or label by flag_source where relevant.
+All queries use price_per_unit_increase_pct and filter/label by flag_source
+(documented_historical vs live_detected) where relevant.
 """
 
 from __future__ import annotations

@@ -13,12 +13,9 @@ Usage:
     python main.py --seed         Run one full ingestion cycle (live APIs)
     python main.py --live         Start continuous 30-minute ingestion scheduler
 
-Note on --reseed:
-    Destructive database wipe has been removed. If you need a clean DB, delete
-    shrinkflation.db manually, then run --init to recreate it.
-    Automatic destructive wipes violate the non-fabrication guarantee: wiping
-    documented historical data and live observations would require re-seeding
-    from scratch and cannot be undone safely.
+Database reset:
+    There is no destructive wipe command. If you need a clean DB, delete
+    the database file manually, then run --init to recreate tables.
 """
 
 import argparse
