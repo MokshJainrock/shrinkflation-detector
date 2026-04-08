@@ -175,10 +175,19 @@ def _init_and_load():
 
 _init_and_load()
 
-# Always run migrations (idempotent, fast) so columns added after
-# the cached init_db() are present even if the DB file survived a
-# Streamlit Cloud redeploy without cache invalidation.
+# Ensure schema is fully up-to-date even if the cached init missed
+# new columns.  This is idempotent and fast (<10 ms).
 add_missing_columns()
+
+# Force-clear the resource cache once so that any stale DB engine
+# from a previous deploy is discarded.  After the first run the
+# flag file prevents further clears.
+import pathlib as _pl
+_CACHE_SENTINEL = _pl.Path("/tmp/.shrinkflation_cache_cleared_v2")
+if not _CACHE_SENTINEL.exists():
+    st.cache_resource.clear()
+    _CACHE_SENTINEL.touch()
+    st.rerun()
 
 # =====================================================================
 # LIVE SCAN — cached for 30 minutes, runs at most once per window
