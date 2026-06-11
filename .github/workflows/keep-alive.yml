@@ -1,0 +1,78 @@
+name: Keep app awake + trigger live scan
+
+# Streamlit Community Cloud has no server-side cron and puts apps to sleep
+# after inactivity. The dashboard runs its live ingestion scan at most once
+# per 30-minute cache window (st.cache_data ttl=1800), but only when the app
+# is actually visited by a real browser session — a plain HTTP ping does not
+# execute the script.
+#
+# This workflow opens the app in headless Chromium every 30 minutes:
+#   - if the app is asleep, it clicks the wake-up button
+#   - the browser session boots the Streamlit script, which runs the
+#     OFF + Kroger ingestion tick and the detector
+#
+# Note: GitHub disables scheduled workflows after ~60 days without repo
+# activity. Any push re-enables them.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  visit-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright
+          playwright install --with-deps chromium
+
+      - name: Visit app and trigger live scan
+        env:
+          APP_URL: https://shrinkflation-detector-t2ltg2v33krb7w2fsdup4a.streamlit.app/
+        run: |
+          python - <<'EOF'
+          import os, time
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["APP_URL"]
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+
+              # If the app went to sleep, click the wake-up button
+              try:
+                  page.get_by_text("get this app back up", exact=False).first.click(timeout=8_000)
+                  print("App was asleep — clicked wake-up button.")
+              except Exception:
+                  print("No wake-up button — app already awake.")
+
+              # Wait for the Streamlit app to render
+              try:
+                  page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=180_000)
+                  print("App rendered.")
+              except Exception:
+                  print("App container not detected within timeout — lingering anyway.")
+
+              # Keep the session open so the server-side live scan
+              # (OFF ingestion + Kroger enrichment + detection) completes
+              time.sleep(90)
+              browser.close()
+
+          print("Visit complete.")
+          EOF
