@@ -4,7 +4,7 @@ Tracks shrinkflation in grocery products. Shrinkflation is when a product gets s
 
 The project has two layers of data:
 
-1. A fixed list of 610+ shrinkflation cases that were documented by public research (BLS size tracking, Consumer Reports, mouseprint.org, FTC complaints, news coverage). Every case keeps a reference to where it was reported.
+1. A fixed list of more than 500 shrinkflation cases that were documented by public research (BLS size tracking, Consumer Reports, mouseprint.org, FTC complaints, news coverage). Every case keeps a reference to where it was reported.
 2. A live pipeline that pulls real product sizes from Open Food Facts and real shelf prices from the Kroger API, and saves timestamped snapshots every 30 minutes. This part grows on its own: when the same product shows up later with a smaller size and a higher price per unit, a new case gets flagged, so the total case count keeps climbing past the documented baseline.
 
 Everything ends up in a Streamlit dashboard. There is also a small GPT-4o agent that can query the database and write daily/weekly summaries.
@@ -17,7 +17,7 @@ Everything ends up in a Streamlit dashboard. There is also a small GPT-4o agent 
 
 | Source | What it provides |
 |--------|-----------------|
-| Documented research | 610+ verified cases (BLS, Consumer Reports, mouseprint.org, FTC, major news outlets, r/shrinkflation) |
+| Documented research | 500+ verified cases (BLS, Consumer Reports, mouseprint.org, FTC, major news outlets, r/shrinkflation) |
 | [Open Food Facts API](https://world.openfoodfacts.org/) | Product sizes, barcodes, brands. Crowdsourced, free, no API key |
 | [Kroger API](https://developer.kroger.com/) | Real US retail shelf prices (free developer account needed) |
 
