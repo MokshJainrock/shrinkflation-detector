@@ -1,54 +1,42 @@
 # Shrinkflation Detector
 
-A hybrid shrinkflation analytics system that combines **610+ documented, verified shrinkflation cases** from public research with a **live data pipeline** that tracks real product sizes and prices over time — all surfaced in an interactive Streamlit dashboard with an AI analyst on top.
+Tracks shrinkflation in grocery products. Shrinkflation is when a product gets smaller but the price stays the same (or goes up), so you quietly pay more per ounce.
 
-Shrinkflation = a product gets smaller while its price stays the same (or rises), so the **price per unit** quietly goes up.
+The project has two layers of data:
 
-## Live Demo
+1. A database of 610+ shrinkflation cases that were documented by public research (BLS size tracking, Consumer Reports, mouseprint.org, FTC complaints, news coverage). Every case keeps a reference to where it was reported.
+2. A live pipeline that pulls real product sizes from Open Food Facts and real shelf prices from the Kroger API, and saves timestamped snapshots. When the same product shows up later with a smaller size and a higher price per unit, it gets flagged.
+
+Everything ends up in a Streamlit dashboard. There is also a small GPT-4o agent that can query the database and write daily/weekly summaries.
+
+## Live demo
 
 [shrinkflation-detector-t2ltg2v33krb7w2fsdup4a.streamlit.app](https://shrinkflation-detector-t2ltg2v33krb7w2fsdup4a.streamlit.app/)
 
-## How It Works
-
-```
-                ┌─ Documented cases (610+ verified, with sources) ─┐
-                │                                                   │
-Open Food Facts ┤                                                   ├─→ SQLite DB ─→ Detector ─→ Dashboard + AI Analyst
-(sizes/barcodes)│                                                   │   (snapshots)   (strict,     (Streamlit)  (GPT-4o)
-                └─ Kroger API (real US retail shelf prices) ────────┘                  evidence-
-                                                                                       based)
-```
-
-1. **Historical layer** — 610+ verified shrinkflation cases seeded from published research (BLS size tracking, Consumer Reports, mouseprint.org, FTC complaints, major media reports). Every case carries its source.
-2. **Live layer** — an ingestion pipeline fetches real product sizes from Open Food Facts and real shelf prices from the Kroger API, storing timestamped snapshots. Runs every 30 minutes: as a true APScheduler background job via `python main.py --live` (local/server), or on a 30-minute cache window per page load on Streamlit Cloud.
-3. **Detection** — a strict, evidence-based detector compares enriched observations over time and flags products whose size shrank while price-per-unit rose.
-4. **Dashboard** — Streamlit app with 7 tabs: Overview, Live Tracking, Compare, Deep Dive, Explorer, AI Insights, Methodology.
-5. **AI analyst** — a GPT-4o agent with function-calling tools queries the database directly to generate daily insights and weekly reports.
-
-## Data Sources
+## Data sources
 
 | Source | What it provides |
 |--------|-----------------|
-| **Documented research** | 610+ verified cases from BLS, Consumer Reports, mouseprint.org, FTC, NYT/WSJ/CNN/NPR/BBC, r/shrinkflation |
-| **[Open Food Facts API](https://world.openfoodfacts.org/)** | Real product sizes, barcodes, brands — crowdsourced, free, no API key |
-| **[Kroger API](https://developer.kroger.com/)** | Real US retail shelf prices (requires free API credentials) |
+| Documented research | 610+ verified cases (BLS, Consumer Reports, mouseprint.org, FTC, major news outlets, r/shrinkflation) |
+| [Open Food Facts API](https://world.openfoodfacts.org/) | Product sizes, barcodes, brands. Crowdsourced, free, no API key |
+| [Kroger API](https://developer.kroger.com/) | Real US retail shelf prices (free developer account needed) |
 
-Historical and live data are strictly separated in the database (`documented_historical` vs `live_*` source labels) — documented cases are never mixed into live detection.
+Nothing is fabricated or simulated. Historical and live records are labeled separately in the database (`documented_historical` vs `live_*`) and the detector never mixes them.
 
-## Detection Methodology
+## How detection works
 
-A live flag is created **only** when all of the following hold:
+The detector is deliberately strict. A live flag only gets created when:
 
-- Two enriched observations (confirmed size **and** price) exist for the same product, at least **30 days apart**
-- Price-only snapshots may be paired with a size snapshot within a **24-hour window** — but only if the pairing is unambiguous
-- Both observations use the same unit family (mass / volume / count)
-- Size decreased by at least **2%**
-- **Price per unit** strictly increased — e.g. 9.75 oz at $4.99 → 9.25 oz at $4.89 is still shrinkflation ($0.512/oz → $0.528/oz, +3.1%) even though the shelf price fell
-- Every flag links to its evidence snapshots (old/new price and size snapshots)
+- the same product was observed twice, at least 30 days apart, with a confirmed size and price each time
+- both observations use the same unit family (mass, volume, or count)
+- the size dropped by at least 2%
+- the price per unit went up
 
-Ambiguous evidence is conservatively rejected: **false negatives are preferred over false positives.**
+That last point matters: a bag that goes from 9.75 oz at $4.99 to 9.25 oz at $4.89 looks like a price cut, but per ounce it went from $0.512 to $0.528. That's shrinkflation, and the detector catches it.
 
-Severity is scored by price-per-unit increase: **HIGH** (≥20%), **MEDIUM** (≥8%), **LOW** (below).
+If the evidence is ambiguous in any way (multiple size readings in the pairing window, unknown units, etc.) the case is rejected. I'd rather miss a real case than report a fake one. Every flag stores links to the exact snapshots used as evidence, so you can audit any result.
+
+Severity is based on the price-per-unit increase: HIGH is 20%+, MEDIUM is 8%+, anything below is LOW.
 
 ## Setup
 
@@ -56,60 +44,52 @@ Severity is scored by price-per-unit increase: **HIGH** (≥20%), **MEDIUM** (�
 git clone https://github.com/MokshJainrock/shrinkflation-detector.git
 cd shrinkflation-detector
 pip install -r requirements.txt
-cp .env.example .env   # then fill in your keys
+cp .env.example .env
 python main.py --init
 ```
 
-### Environment variables (`.env`)
+Keys go in `.env` (or Streamlit secrets if you deploy there):
 
-| Variable | Required for | Notes |
-|----------|--------------|-------|
-| `DATABASE_URL` | optional | Defaults to `sqlite:///shrinkflation.db` |
-| `KROGER_CLIENT_ID` / `KROGER_CLIENT_SECRET` | live price ingestion | Free at [developer.kroger.com](https://developer.kroger.com/) |
-| `OPENAI_API_KEY` | AI insights/reports | GPT-4o with function calling |
+- `KROGER_CLIENT_ID` / `KROGER_CLIENT_SECRET` for live prices
+- `OPENAI_API_KEY` if you want the AI insights
+- `DATABASE_URL` is optional, defaults to a local SQLite file
 
-On Streamlit Cloud, the same keys can be set via Streamlit secrets instead.
-
-## CLI
+## Usage
 
 ```bash
-python main.py --init         # Create all DB tables
-python main.py --scrape       # Run one ingestion tick (Open Food Facts + Kroger)
-python main.py --analyze      # Run the strict evidence-based detector
-python main.py --insight      # Generate and print daily AI insight
-python main.py --report       # Generate and print weekly AI report
-python main.py --all          # Scrape + analyze + insight
-python main.py --schedule     # Run --all every 24 hours automatically
-python main.py --live         # Continuous ingestion every 30 minutes (Ctrl+C to stop)
-python main.py --seed         # Run one full ingestion cycle via the pipeline
-python main.py --dashboard    # Launch Streamlit dashboard on localhost:8501
+python main.py --init         # create DB tables
+python main.py --scrape       # one ingestion tick (Open Food Facts + Kroger)
+python main.py --analyze      # run the detector
+python main.py --insight      # daily AI insight
+python main.py --report       # weekly AI report
+python main.py --all          # scrape + analyze + insight
+python main.py --schedule     # run --all every 24 hours
+python main.py --live         # keep ingesting every 30 minutes until Ctrl+C
+python main.py --seed         # one full ingestion cycle via the pipeline
+python main.py --dashboard    # Streamlit on localhost:8501
 ```
+
+On a server you'd run `--live` for continuous collection. The hosted demo on Streamlit Cloud can't run background jobs, so there the scan runs on a 30 minute cache window whenever the page is loaded (a scheduled GitHub Action visits the app to keep this going).
 
 ## Dashboard
 
-- **Overview** — headline stats, worst offending brands, severity and category breakdowns
-- **Live Tracking** — tracking funnel and freshly detected flags from the live pipeline
-- **Compare** — side-by-side before/after product comparison
-- **Deep Dive** — per-brand analysis and product snapshot timelines
-- **Explorer** — filterable raw data browser
-- **AI Insights** — GPT-4o-generated daily insights and weekly reports
-- **Methodology** — full explanation of detection rules and data provenance
+Seven tabs: Overview, Live Tracking, Compare, Deep Dive, Explorer, AI Insights, and Methodology. The Methodology tab explains the detection rules and where every piece of data comes from.
 
-## Project Structure
+## Project layout
 
 ```
-├── main.py              # CLI entrypoint
-├── config/              # Settings, thresholds, API endpoints, secrets loading
-├── db/                  # SQLAlchemy models (products, snapshots, flags, insights)
-├── data/                # 610+ verified historical cases + loader
-├── scraper/             # Open Food Facts live tracker + Kroger price scraper
-├── ingestion/           # Pipeline orchestration + APScheduler scheduler
-├── analysis/            # Strict evidence-based shrinkflation detector
-├── agent/               # GPT-4o analyst with function-calling DB tools
-├── dashboard/           # Streamlit app (7 tabs)
-└── tests/               # Detector unit tests
+main.py              CLI entrypoint
+config/              settings, thresholds, API endpoints
+db/                  SQLAlchemy models
+data/                verified historical cases + loader
+scraper/             Open Food Facts tracker, Kroger price scraper
+ingestion/           pipeline + 30-minute scheduler
+analysis/            the detector
+agent/               GPT-4o analyst with function-calling tools
+dashboard/           Streamlit app
+tests/               detector tests
 ```
 
-## Tech Stack
+## Stack
 
-Python · Streamlit · SQLAlchemy (SQLite) · APScheduler · Plotly · Pandas · OpenAI (GPT-4o) · Requests
+Python, Streamlit, SQLAlchemy (SQLite/Postgres), APScheduler, Plotly, Pandas, OpenAI API, Requests

@@ -1,18 +1,13 @@
 name: Keep app awake + trigger live scan
 
-# Streamlit Community Cloud has no server-side cron and puts apps to sleep
-# after inactivity. The dashboard runs its live ingestion scan at most once
-# per 30-minute cache window (st.cache_data ttl=1800), but only when the app
-# is actually visited by a real browser session — a plain HTTP ping does not
-# execute the script.
+# Streamlit Cloud sleeps apps after inactivity and has no cron. The live scan
+# in the dashboard only runs when a real browser session loads the page, so a
+# plain curl ping is useless. This opens the app in headless Chromium every
+# 30 minutes, clicks the wake-up button if needed, and stays on the page long
+# enough for the scan to finish.
 #
-# This workflow opens the app in headless Chromium every 30 minutes:
-#   - if the app is asleep, it clicks the wake-up button
-#   - the browser session boots the Streamlit script, which runs the
-#     OFF + Kroger ingestion tick and the detector
-#
-# Note: GitHub disables scheduled workflows after ~60 days without repo
-# activity. Any push re-enables them.
+# Heads up: GitHub turns off scheduled workflows after ~60 days with no
+# pushes to the repo.
 
 on:
   schedule:
@@ -58,16 +53,16 @@ jobs:
               # If the app went to sleep, click the wake-up button
               try:
                   page.get_by_text("get this app back up", exact=False).first.click(timeout=8_000)
-                  print("App was asleep — clicked wake-up button.")
+                  print("App was asleep, clicked wake-up button.")
               except Exception:
-                  print("No wake-up button — app already awake.")
+                  print("No wake-up button, app already awake.")
 
               # Wait for the Streamlit app to render
               try:
                   page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=180_000)
                   print("App rendered.")
               except Exception:
-                  print("App container not detected within timeout — lingering anyway.")
+                  print("App container not detected within timeout, lingering anyway.")
 
               # Keep the session open so the server-side live scan
               # (OFF ingestion + Kroger enrichment + detection) completes
