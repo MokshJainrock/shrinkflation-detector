@@ -69,7 +69,7 @@ python main.py --seed         # one full ingestion cycle via the pipeline
 python main.py --dashboard    # Streamlit on localhost:8501
 ```
 
-On a server you'd run `--live` for continuous collection. The hosted demo on Streamlit Cloud can't run background jobs, so there the scan runs on a 30 minute cache window whenever the page is loaded (a scheduled GitHub Action visits the app to keep this going).
+On a server you'd run `--live` for continuous collection. The hosted demo on Streamlit Cloud can't run background jobs, so there the scan runs on a 30 minute cache window whenever the page is loaded. GitHub Actions visits the app on a schedule to keep it awake and trigger scans. For a more reliable backup, see [docs/keep-alive-backup.md](docs/keep-alive-backup.md) (cron-job.org setup).
 
 ## Dashboard
 

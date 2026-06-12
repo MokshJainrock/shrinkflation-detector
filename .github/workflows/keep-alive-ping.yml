@@ -1,0 +1,40 @@
+name: Keep app awake (light ping)
+
+# Backup layer: hit the Streamlit URL often so the app does not go idle long
+# enough to sleep (~12 hours with no traffic). A plain HTTP request does not
+# run the live scan, but it helps keep the container warm between the full
+# browser visits in keep-alive.yml.
+#
+# Use cron-job.org as a second backup if GitHub's scheduler lags. See
+# docs/keep-alive-backup.md
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-alive-ping
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Streamlit app
+        env:
+          APP_URL: https://shrinkflation-detector-t2ltg2v33krb7w2fsdup4a.streamlit.app/
+        run: |
+          set -euo pipefail
+          UA="ShrinkflationKeepAlive/1.0 (+https://github.com/MokshJainrock/shrinkflation-detector)"
+
+          echo "Pinging app root..."
+          curl -fsSL --max-time 30 -A "$UA" -L "$APP_URL" -o /dev/null || echo "root ping failed (non-fatal)"
+
+          echo "Pinging health endpoint..."
+          curl -fsSL --max-time 30 -A "$UA" -L "${APP_URL}_stcore/health" -o /dev/null || echo "health ping failed (non-fatal)"
+
+          echo "Done."

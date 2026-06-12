@@ -13,6 +13,8 @@ on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
+  repository_dispatch:
+    types: [streamlit-scan]
 
 permissions: {}
 
